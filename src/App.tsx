@@ -64,8 +64,8 @@ export default function App() {
     editor.replaceScore(next[0])
   }
 
-  function importOmr(events: NoteEvent[]) {
-    const s = { ...newScore(), title: '読み取り結果', events }
+  function importOmr(events: NoteEvent[], clef: Score['clef']) {
+    const s = { ...newScore(), title: 'Scan score', clef, events }
     setStoredScores([...scores, s])
     editor.replaceScore(s)
   }
@@ -126,12 +126,12 @@ export default function App() {
         <input
           value={score.title}
           onChange={(e) => editor.setMeta({ title: e.target.value })}
-          aria-label="タイトル"
+          aria-label="Title"
         />
       </header>
       <div className="scores-bar">
         <label>
-          楽譜
+          Score
           <select value={score.id} onChange={(e) => switchScore(e.target.value)}>
             {scores.map((s) => (
               <option key={s.id} value={s.id}>
@@ -140,14 +140,14 @@ export default function App() {
             ))}
           </select>
         </label>
-        <button onClick={addScore}>新規</button>
-        <button onClick={deleteScore}>削除</button>
+        <button onClick={addScore}>New</button>
+        <button onClick={deleteScore}>Delete</button>
         <button onClick={() => download(`${score.title}.json`, JSON.stringify(score, null, 2), 'application/json')}>
-          JSON出力
+          Export JSON
         </button>
-        <button onClick={() => download(`${score.title}.abc`, abc, 'text/plain')}>ABC出力</button>
+        <button onClick={() => download(`${score.title}.abc`, abc, 'text/plain')}>Export ABC</button>
         <label className="file-button">
-          JSON読込
+          Import JSON
           <input
             type="file"
             accept="application/json"
@@ -184,10 +184,10 @@ export default function App() {
             else if (visualRef.current) playback.play(visualRef.current)
           }}
         >
-          {playback.playing ? '■ 停止' : '▶ 再生'}
+          {playback.playing ? '■ Stop' : '▶ Play'}
         </button>
         <label>
-          テンポ {score.tempo}
+          Tempo {score.tempo}
           <input
             type="range"
             min={40}
@@ -197,7 +197,7 @@ export default function App() {
           />
         </label>
         <label>
-          移調 {transpose > 0 ? `+${transpose}` : transpose}
+          Transpose {transpose > 0 ? `+${transpose}` : transpose}
           <input
             type="range"
             min={-12}
@@ -207,10 +207,10 @@ export default function App() {
           />
         </label>
         <label>
-          音名
+          Note names
           <select value={noteNames} onChange={(e) => setNoteNames(e.target.value as NoteNameStyle)}>
-            <option value="off">なし</option>
-            <option value="doremi">ドレミ</option>
+            <option value="off">Off</option>
+            <option value="doremi">Do-re-mi</option>
             <option value="cde">CDE</option>
           </select>
         </label>

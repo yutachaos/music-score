@@ -10,13 +10,13 @@ export interface AbcOptions {
 }
 
 const DOREMI: Record<Step, string> = {
-  C: 'ド',
-  D: 'レ',
-  E: 'ミ',
-  F: 'ファ',
-  G: 'ソ',
-  A: 'ラ',
-  B: 'シ',
+  C: 'Do',
+  D: 'Re',
+  E: 'Mi',
+  F: 'Fa',
+  G: 'Sol',
+  A: 'La',
+  B: 'Si',
 }
 
 const ACC_PREFIX = { sharp: '^', flat: '_', natural: '=' } as const

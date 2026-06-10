@@ -84,7 +84,7 @@ describe('scoreToAbc', () => {
       { kind: 'note', pitch: { step: 'F', octave: 4, accidental: 'sharp' }, duration: 4 },
     ]
     expect(body(scoreToAbc(score({ events }), { noteNames: 'doremi' }))).toBe(
-      '"^ド"C8 "^ファ♯"^F8 |]',
+      '"^Do"C8 "^Fa♯"^F8 |]',
     )
     expect(body(scoreToAbc(score({ events }), { noteNames: 'cde' }))).toBe(
       '"^C"C8 "^F♯"^F8 |]',

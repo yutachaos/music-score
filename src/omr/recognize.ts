@@ -1,4 +1,4 @@
-import type { NoteEvent } from '../model/types'
+import type { Clef, NoteEvent } from '../model/types'
 import { staffPitch } from '../model/pitch'
 
 export interface BitmapLike {
@@ -51,41 +51,105 @@ function binarize(image: BitmapLike): Uint8Array {
 }
 
 interface StaffInfo {
-  lines: number[] // center Y of the 5 lines, top to bottom
+  lines: number[] // center Y of the 5 lines at x = 0, top to bottom
   spacing: number
   thickness: number
+  slope: number // dy/dx of the staff lines (small skew from photos/scans)
+}
+
+function projection(bin: Uint8Array, width: number, height: number, slope: number): Float64Array {
+  const proj = new Float64Array(height)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!bin[y * width + x]) continue
+      const row = Math.round(y - slope * x)
+      if (row >= 0 && row < height) proj[row]++
+    }
+  }
+  return proj
 }
 
 function findStaff(bin: Uint8Array, width: number, height: number): StaffInfo {
-  const proj = new Array<number>(height).fill(0)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) proj[y] += bin[y * width + x]
-  }
-  const max = Math.max(...proj)
-  const isLine = proj.map((v) => v > max * 0.5)
-  const groups: { center: number; size: number }[] = []
-  let start = -1
-  for (let y = 0; y <= height; y++) {
-    if (y < height && isLine[y]) {
-      if (start < 0) start = y
-    } else if (start >= 0) {
-      groups.push({ center: (start + y - 1) / 2, size: y - start })
-      start = -1
+  // estimate skew: the slope that makes the projection sharpest
+  let slope = 0
+  let proj = projection(bin, width, height, 0)
+  let bestSharpness = -1
+  for (let s = -0.02; s <= 0.0201; s += 0.0025) {
+    const p = projection(bin, width, height, s)
+    let sharpness = 0
+    for (let i = 0; i < height; i++) sharpness += p[i] * p[i]
+    if (sharpness > bestSharpness) {
+      bestSharpness = sharpness
+      slope = s
+      proj = p
     }
   }
-  if (groups.length < 5) throw new Error('Could not detect staff lines')
-  const lines = groups.slice(0, 5).map((g) => g.center)
+
+  // comb search: 5 evenly spaced rows maximizing summed projection
+  const max = Math.max(...proj)
+  const rowAt = (y: number) => {
+    const r = Math.round(y)
+    return Math.max(proj[r - 1] ?? 0, proj[r] ?? 0, proj[r + 1] ?? 0)
+  }
+  let best = { score: -1, y0: 0, spacing: 0 }
+  for (let spacing = 5; spacing <= height / 5; spacing += 0.25) {
+    for (let y0 = 0; y0 + 4 * spacing < height; y0++) {
+      if (proj[y0] < max * 0.3) continue
+      let score = 0
+      for (let k = 0; k < 5; k++) score += rowAt(y0 + k * spacing)
+      if (score > best.score) best = { score, y0, spacing }
+    }
+  }
+  if (best.score < width * 2.5) throw new Error('Could not detect staff lines')
+
+  // refine each line: peak row near the expected position, then a tight centroid
+  // around the peak so nearby noteheads do not bias the center
+  const lines: number[] = []
+  for (let k = 0; k < 5; k++) {
+    const guess = best.y0 + k * best.spacing
+    const r = Math.max(1, Math.round(best.spacing / 3))
+    const center = Math.round(guess)
+    let peak = center
+    for (let y = center - r; y <= center + r; y++) {
+      if ((proj[y] ?? 0) > (proj[peak] ?? 0)) peak = y
+    }
+    let weight = 0
+    let sum = 0
+    for (let y = peak - 2; y <= peak + 2; y++) {
+      const v = proj[y] ?? 0
+      if (v < proj[peak] * 0.5) continue
+      weight += v
+      sum += v * y
+    }
+    lines.push(weight > 0 ? sum / weight : guess)
+  }
   const spacing = (lines[4] - lines[0]) / 4
-  const thickness = groups.slice(0, 5).reduce((a, g) => a + g.size, 0) / 5
-  return { lines, spacing, thickness }
+
+  let thickRows = 0
+  for (let y = 0; y < height; y++) if (proj[y] > max * 0.5) thickRows++
+  const thickness = Math.max(1, thickRows / 5)
+
+  return { lines, spacing, thickness, slope }
 }
 
 function removeStaffLines(bin: Uint8Array, width: number, height: number, staff: StaffInfo) {
   const maxRun = Math.ceil(staff.thickness * 2)
+  const search = Math.ceil(staff.thickness) + 1
   for (const line of staff.lines) {
-    const yc = Math.round(line)
     for (let x = 0; x < width; x++) {
-      if (!bin[yc * width + x]) continue
+      const guess = Math.round(line + staff.slope * x)
+      // the rounded position may be off by a pixel or two; find the actual line pixel
+      let yc = -1
+      for (let d = 0; d <= search; d++) {
+        for (const y of [guess + d, guess - d]) {
+          if (y >= 0 && y < height && bin[y * width + x]) {
+            yc = y
+            break
+          }
+        }
+        if (yc >= 0) break
+      }
+      if (yc < 0) continue
       let top = yc
       while (top > 0 && bin[(top - 1) * width + x]) top--
       let bottom = yc
@@ -165,7 +229,7 @@ function findHeads(filtered: Uint8Array, width: number, height: number, s: numbe
   return heads.sort((a, b) => a.x - b.x)
 }
 
-export function recognize(image: BitmapLike): OmrResult {
+export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
   const staff = findStaff(bin, width, height)
@@ -173,8 +237,19 @@ export function recognize(image: BitmapLike): OmrResult {
   const filtered = filterHeadPixels(bin, width, height, staff.spacing)
   const heads = findHeads(filtered, width, height, staff.spacing)
   const events: NoteEvent[] = heads.map((h) => {
-    const steps = Math.round((h.y - staff.lines[0]) / (staff.spacing / 2))
-    return { kind: 'note', pitch: staffPitch(steps), duration: 4 }
+    // interpolate between the two nearest detected lines (skew-corrected space)
+    const y = h.y - staff.slope * h.x
+    const { lines } = staff
+    let idx: number
+    if (y <= lines[0]) idx = (y - lines[0]) / staff.spacing
+    else if (y >= lines[4]) idx = 4 + (y - lines[4]) / staff.spacing
+    else {
+      let k = 0
+      while (y > lines[k + 1]) k++
+      idx = k + (y - lines[k]) / (lines[k + 1] - lines[k])
+    }
+    const steps = Math.round(idx * 2)
+    return { kind: 'note', pitch: staffPitch(steps, clef), duration: 4 }
   })
   return { events, heads, staffLines: staff.lines, staffSpacing: staff.spacing }
 }

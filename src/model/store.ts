@@ -19,7 +19,7 @@ export function saveScores(scores: Score[]) {
 export function newScore(): Score {
   return {
     id: crypto.randomUUID(),
-    title: '新しい楽譜',
+    title: 'New score',
     clef: 'treble',
     keySig: 'C',
     timeSig: '4/4',

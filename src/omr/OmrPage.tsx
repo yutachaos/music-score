@@ -1,13 +1,44 @@
 import { useRef, useState } from 'react'
-import type { NoteEvent } from '../model/types'
+import type { Clef, NoteEvent } from '../model/types'
 import { recognize, type OmrResult } from './recognize'
 
 const MAX_WIDTH = 1200
 
-export function OmrPage({ onImport }: { onImport: (events: NoteEvent[]) => void }) {
+export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Clef) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const imageRef = useRef<ImageData | null>(null)
+  const [clef, setClef] = useState<Clef>('treble')
   const [result, setResult] = useState<OmrResult | null>(null)
   const [error, setError] = useState('')
+
+  function run(image: ImageData, currentClef: Clef) {
+    const canvas = canvasRef.current!
+    const ctx = canvas.getContext('2d')!
+    ctx.putImageData(image, 0, 0)
+    try {
+      const r = recognize(image, currentClef)
+      setResult(r)
+      setError('')
+      ctx.strokeStyle = 'rgba(0, 120, 255, 0.7)'
+      ctx.lineWidth = 1
+      for (const y of r.staffLines) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(canvas.width, y)
+        ctx.stroke()
+      }
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)'
+      ctx.lineWidth = 2
+      for (const h of r.heads) {
+        ctx.beginPath()
+        ctx.arc(h.x, h.y, r.staffSpacing * 0.8, 0, Math.PI * 2)
+        ctx.stroke()
+      }
+    } catch (e) {
+      setResult(null)
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   function handleFile(file: File) {
     const img = new Image()
@@ -19,41 +50,26 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[]) => void 
       canvas.height = Math.round(img.height * scale)
       const ctx = canvas.getContext('2d')!
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      try {
-        const r = recognize(ctx.getImageData(0, 0, canvas.width, canvas.height))
-        setResult(r)
-        setError('')
-        ctx.strokeStyle = 'rgba(0, 120, 255, 0.7)'
-        for (const y of r.staffLines) {
-          ctx.beginPath()
-          ctx.moveTo(0, y)
-          ctx.lineTo(canvas.width, y)
-          ctx.stroke()
-        }
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)'
-        ctx.lineWidth = 2
-        for (const h of r.heads) {
-          ctx.beginPath()
-          ctx.arc(h.x, h.y, r.staffSpacing * 0.8, 0, Math.PI * 2)
-          ctx.stroke()
-        }
-      } catch (e) {
-        setResult(null)
-        setError(e instanceof Error ? e.message : String(e))
-      }
+      imageRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      run(imageRef.current, clef)
     }
     img.src = URL.createObjectURL(file)
+  }
+
+  function handleClef(next: Clef) {
+    setClef(next)
+    if (imageRef.current) run(imageRef.current, next)
   }
 
   return (
     <details className="omr">
       <summary>Photo recognition (experimental)</summary>
       <p className="hint">
-        Works only with cleanly printed, monophonic, treble-clef scores. All durations are read as
-        quarter notes — fix them in the editor after importing.
+        Works only with cleanly printed, monophonic scores. All durations are read as quarter
+        notes — fix them in the editor after importing.
       </p>
       <label className="file-button">
-        画像を選択
+        Choose image
         <input
           type="file"
           accept="image/*"
@@ -63,12 +79,19 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[]) => void 
             e.target.value = ''
           }}
         />
+      </label>{' '}
+      <label>
+        Clef{' '}
+        <select value={clef} onChange={(e) => handleClef(e.target.value as Clef)}>
+          <option value="treble">Treble</option>
+          <option value="bass">Bass</option>
+        </select>
       </label>
       {error && <p className="omr-error">{error}</p>}
       {result && (
         <p>
           Detected {result.events.length} notes{' '}
-          <button onClick={() => onImport(result.events)}>新しい楽譜として取込</button>
+          <button onClick={() => onImport(result.events, clef)}>Import as new score</button>
         </p>
       )}
       <canvas ref={canvasRef} className="omr-canvas" />

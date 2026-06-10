@@ -95,6 +95,17 @@ header input:focus {
   border-radius: 0 7px 7px 0;
 }
 
+.note-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.5rem;
+}
+
+.note-button svg {
+  display: block;
+}
+
 button,
 .file-button {
   font-size: 0.85rem;

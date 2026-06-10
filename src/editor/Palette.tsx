@@ -1,15 +1,43 @@
 import type { Accidental, Clef, Duration } from '../model/types'
 
-const DURATIONS: { value: Duration; label: string }[] = [
-  { value: 1, label: '𝅝' },
-  { value: 2, label: '𝅗𝅥' },
-  { value: 4, label: '♩' },
-  { value: 8, label: '♪' },
-  { value: 16, label: '𝅘𝅥𝅯' },
+// inline SVG note icons: Unicode music glyphs render as tofu on some systems
+function NoteIcon({ duration }: { duration: Duration }) {
+  const filled = duration >= 4
+  const stem = duration >= 2
+  const flags = duration === 8 ? 1 : duration === 16 ? 2 : 0
+  return (
+    <svg width="16" height="22" viewBox="0 0 16 22" aria-hidden="true">
+      <ellipse
+        cx="6"
+        cy="17.5"
+        rx="4.4"
+        ry="3.1"
+        transform="rotate(-20 6 17.5)"
+        fill={filled ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.4"
+      />
+      {stem && <line x1="10.3" y1="17" x2="10.3" y2="2" stroke="currentColor" strokeWidth="1.4" />}
+      {flags >= 1 && (
+        <path d="M10.3 2 C 14 4.5, 15 8, 13 11.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      )}
+      {flags >= 2 && (
+        <path d="M10.3 6 C 14 8.5, 15 12, 13 15.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      )}
+    </svg>
+  )
+}
+
+const DURATIONS: { value: Duration; name: string }[] = [
+  { value: 1, name: 'Whole note' },
+  { value: 2, name: 'Half note' },
+  { value: 4, name: 'Quarter note' },
+  { value: 8, name: 'Eighth note' },
+  { value: 16, name: '16th note' },
 ]
 
 const ACCIDENTALS: { value: Accidental | ''; label: string }[] = [
-  { value: '', label: 'なし' },
+  { value: '', label: 'None' },
   { value: 'sharp', label: '♯' },
   { value: 'flat', label: '♭' },
   { value: 'natural', label: '♮' },
@@ -37,26 +65,27 @@ export interface PaletteProps {
 export function Palette(p: PaletteProps) {
   return (
     <div className="palette">
-      <span className="palette-group" role="group" aria-label="音価">
+      <span className="palette-group" role="group" aria-label="Duration">
         {DURATIONS.map((d) => (
           <button
             key={d.value}
-            className={p.duration === d.value ? 'active' : ''}
+            className={`note-button ${p.duration === d.value ? 'active' : ''}`}
             onClick={() => p.onDuration(d.value)}
-            title={`1/${d.value}`}
+            title={d.name}
+            aria-label={d.name}
           >
-            {d.label}
+            <NoteIcon duration={d.value} />
           </button>
         ))}
         <button
           className={p.dotted ? 'active' : ''}
           onClick={() => p.onDotted(!p.dotted)}
-          title="付点"
+          title="Dotted"
         >
-          付点
+          Dot
         </button>
       </span>
-      <span className="palette-group" role="group" aria-label="臨時記号">
+      <span className="palette-group" role="group" aria-label="Accidental">
         {ACCIDENTALS.map((a) => (
           <button
             key={a.value}
@@ -67,16 +96,16 @@ export function Palette(p: PaletteProps) {
           </button>
         ))}
       </span>
-      <button onClick={p.onInsertRest}>休符挿入</button>
+      <button onClick={p.onInsertRest}>Insert rest</button>
       <label>
-        音部記号
+        Clef
         <select value={p.clef} onChange={(e) => p.onClef(e.target.value as Clef)}>
-          <option value="treble">ト音記号</option>
-          <option value="bass">ヘ音記号</option>
+          <option value="treble">Treble</option>
+          <option value="bass">Bass</option>
         </select>
       </label>
       <label>
-        調号
+        Key
         <select value={p.keySig} onChange={(e) => p.onKeySig(e.target.value)}>
           {KEYS.map((k) => (
             <option key={k}>{k}</option>
@@ -84,7 +113,7 @@ export function Palette(p: PaletteProps) {
         </select>
       </label>
       <label>
-        拍子
+        Time
         <select value={p.timeSig} onChange={(e) => p.onTimeSig(e.target.value)}>
           {TIMES.map((t) => (
             <option key={t}>{t}</option>
