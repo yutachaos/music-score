@@ -29,6 +29,34 @@ header input {
   padding: 0.3rem 0.5rem;
 }
 
+.scores-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.scores-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.scores-bar button,
+.file-button {
+  font-size: 0.9rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.file-button input {
+  display: none;
+}
+
 .palette {
   display: flex;
   flex-wrap: wrap;

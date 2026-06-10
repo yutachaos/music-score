@@ -7,18 +7,16 @@ import { ScoreView } from './editor/ScoreView'
 import { Palette } from './editor/Palette'
 import { useEditor } from './editor/useEditor'
 import { usePlayback } from './playback/usePlayback'
+import { download, loadScores, newScore, saveScores } from './model/store'
 
-const initialScore: Score = {
-  id: 'score-1',
-  title: '新しい楽譜',
-  keySig: 'C',
-  timeSig: '4/4',
-  tempo: 100,
-  events: [],
-}
+const initialScores = (() => {
+  const stored = loadScores()
+  return stored.length > 0 ? stored : [newScore()]
+})()
 
 export default function App() {
-  const editor = useEditor(initialScore)
+  const [storedScores, setStoredScores] = useState<Score[]>(initialScores)
+  const editor = useEditor(initialScores[0])
   const [duration, setDuration] = useState<Duration>(4)
   const [accidental, setAccidental] = useState<Accidental | ''>('')
   const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
@@ -34,6 +32,43 @@ export default function App() {
 
   const stopPlayback = playback.stop
   useEffect(() => stopPlayback, [abc, transpose, stopPlayback])
+
+  // current edits merged into the list; persisted by the effect below
+  const scores = storedScores.map((s) => (s.id === score.id ? score : s))
+
+  useEffect(() => {
+    saveScores(scores)
+  }, [scores])
+
+  function switchScore(id: string) {
+    const found = scores.find((s) => s.id === id)
+    if (!found) return
+    setStoredScores(scores)
+    editor.replaceScore(found)
+  }
+
+  function addScore() {
+    const s = newScore()
+    setStoredScores([...scores, s])
+    editor.replaceScore(s)
+  }
+
+  function deleteScore() {
+    if (!window.confirm(`「${score.title}」を削除しますか?`)) return
+    const rest = scores.filter((s) => s.id !== score.id)
+    const next = rest.length > 0 ? rest : [newScore()]
+    setStoredScores(next)
+    editor.replaceScore(next[0])
+  }
+
+  function importJson(file: File) {
+    file.text().then((text) => {
+      const imported = JSON.parse(text) as Score
+      const s = { ...imported, id: crypto.randomUUID() }
+      setStoredScores([...scores, s])
+      editor.replaceScore(s)
+    })
+  }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -84,6 +119,36 @@ export default function App() {
           aria-label="タイトル"
         />
       </header>
+      <div className="scores-bar">
+        <label>
+          楽譜
+          <select value={score.id} onChange={(e) => switchScore(e.target.value)}>
+            {scores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button onClick={addScore}>新規</button>
+        <button onClick={deleteScore}>削除</button>
+        <button onClick={() => download(`${score.title}.json`, JSON.stringify(score, null, 2), 'application/json')}>
+          JSON出力
+        </button>
+        <button onClick={() => download(`${score.title}.abc`, abc, 'text/plain')}>ABC出力</button>
+        <label className="file-button">
+          JSON読込
+          <input
+            type="file"
+            accept="application/json"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) importJson(file)
+              e.target.value = ''
+            }}
+          />
+        </label>
+      </div>
       <Palette
         duration={duration}
         onDuration={setDuration}
