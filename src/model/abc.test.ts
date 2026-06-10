@@ -6,6 +6,7 @@ function score(partial: Partial<Score>): Score {
   return {
     id: 's1',
     title: 'Test',
+    clef: 'treble',
     keySig: 'C',
     timeSig: '4/4',
     tempo: 120,
@@ -19,10 +20,10 @@ function body(abc: string): string {
 }
 
 describe('measureUnits', () => {
-  it('converts time signatures to 16th units', () => {
-    expect(measureUnits('4/4')).toBe(16)
-    expect(measureUnits('3/4')).toBe(12)
-    expect(measureUnits('6/8')).toBe(12)
+  it('converts time signatures to 32nd units', () => {
+    expect(measureUnits('4/4')).toBe(32)
+    expect(measureUnits('3/4')).toBe(24)
+    expect(measureUnits('6/8')).toBe(24)
   })
 })
 
@@ -46,7 +47,7 @@ describe('scoreToAbc', () => {
         ],
       }),
     )
-    expect(body(abc)).toBe('C4 D2 E1 z8 |]')
+    expect(body(abc)).toBe('C8 D4 E2 z16 |]')
   })
 
   it('inserts barlines per time signature', () => {
@@ -60,7 +61,7 @@ describe('scoreToAbc', () => {
         ],
       }),
     )
-    expect(body(abc)).toBe('C4 D4 | E4 |]')
+    expect(body(abc)).toBe('C8 D8 | E8 |]')
   })
 
   it('renders accidentals and octaves', () => {
@@ -74,7 +75,7 @@ describe('scoreToAbc', () => {
         ],
       }),
     )
-    expect(body(abc)).toBe("^F4 _B,4 c4 d'4 |]")
+    expect(body(abc)).toBe("^F8 _B,8 c8 d'8 |]")
   })
 
   it('adds note-name annotations', () => {
@@ -83,14 +84,38 @@ describe('scoreToAbc', () => {
       { kind: 'note', pitch: { step: 'F', octave: 4, accidental: 'sharp' }, duration: 4 },
     ]
     expect(body(scoreToAbc(score({ events }), { noteNames: 'doremi' }))).toBe(
-      '"^ド"C4 "^ファ♯"^F4 |]',
+      '"^ド"C8 "^ファ♯"^F8 |]',
     )
     expect(body(scoreToAbc(score({ events }), { noteNames: 'cde' }))).toBe(
-      '"^C"C4 "^F♯"^F4 |]',
+      '"^C"C8 "^F♯"^F8 |]',
     )
   })
 
   it('renders an empty score with a placeholder measure', () => {
-    expect(body(scoreToAbc(score({})))).toBe('x4 |]')
+    expect(body(scoreToAbc(score({})))).toBe('x8 |]')
+  })
+
+  it('renders dotted durations', () => {
+    const abc = scoreToAbc(
+      score({
+        events: [
+          { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 4, dotted: true },
+          { kind: 'note', pitch: { step: 'D', octave: 4 }, duration: 8 },
+          { kind: 'rest', duration: 16, dotted: true },
+        ],
+      }),
+    )
+    expect(body(abc)).toBe('C12 D4 z3 |]')
+  })
+
+  it('breaks the line every 4 measures', () => {
+    const whole = { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 1 } as const
+    const abc = scoreToAbc(score({ events: Array(5).fill(whole) }))
+    expect(abc).toContain('C32 | C32 | C32 | C32 |\nC32 |]')
+  })
+
+  it('renders bass clef in the key line', () => {
+    expect(scoreToAbc(score({ clef: 'bass' }))).toContain('K:C clef=bass')
+    expect(scoreToAbc(score({}))).toContain('K:C\n')
   })
 })

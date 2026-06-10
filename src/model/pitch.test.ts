@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diatonicToPitch, pitchToDiatonic, transposePitch, trebleStaffPitch } from './pitch'
+import { diatonicToPitch, pitchToDiatonic, transposePitch, staffPitch } from './pitch'
 
 describe('diatonic conversion', () => {
   it('round-trips pitches', () => {
@@ -35,11 +35,17 @@ describe('transposePitch', () => {
   })
 })
 
-describe('trebleStaffPitch', () => {
+describe('staffPitch', () => {
   it('maps staff positions to pitches', () => {
-    expect(trebleStaffPitch(0)).toEqual({ step: 'F', octave: 5 }) // top line
-    expect(trebleStaffPitch(8)).toEqual({ step: 'E', octave: 4 }) // bottom line
-    expect(trebleStaffPitch(10)).toEqual({ step: 'C', octave: 4 }) // 1st ledger below
-    expect(trebleStaffPitch(-2)).toEqual({ step: 'A', octave: 5 }) // above staff
+    expect(staffPitch(0)).toEqual({ step: 'F', octave: 5 }) // top line
+    expect(staffPitch(8)).toEqual({ step: 'E', octave: 4 }) // bottom line
+    expect(staffPitch(10)).toEqual({ step: 'C', octave: 4 }) // 1st ledger below
+    expect(staffPitch(-2)).toEqual({ step: 'A', octave: 5 }) // above staff
+  })
+
+  it('maps bass clef positions', () => {
+    expect(staffPitch(0, 'bass')).toEqual({ step: 'A', octave: 3 }) // top line
+    expect(staffPitch(8, 'bass')).toEqual({ step: 'G', octave: 2 }) // bottom line
+    expect(staffPitch(-2, 'bass')).toEqual({ step: 'C', octave: 4 }) // middle C above
   })
 })

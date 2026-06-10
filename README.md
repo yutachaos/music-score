@@ -1,23 +1,23 @@
 # music-score
 
-五線譜を GUI で書き、読譜の助けになる機能を備えたフロントエンド完結の Web アプリ。
+A frontend-only web app for writing staff notation with features that help you read sheet music.
 
 https://yutachaos.github.io/music-score/
 
-## 機能
+## Features
 
-- **譜面エディタ**: 五線をクリックして音符を配置。パレットで音価・休符・臨時記号・調号・拍子を選択。↑↓ で音高、←→ で選択移動、Delete で削除、Ctrl+Z で元に戻す
-- **読譜支援**: 再生（再生中の音符をハイライト）、テンポ変更、移調、音名表示（ドレミ / CDE）
-- **保存**: ブラウザ（localStorage）に複数曲を自動保存。JSON / ABC 形式でエクスポート、JSON インポート
-- **写真から読み取り（実験的）**: きれいに印刷された単旋律・ト音記号の譜面写真から音符を認識。音価はすべて四分音符として読み取るため、取込後にエディタで修正する前提
+- **Score editor**: Click on the staff to place notes. Pick duration, dots, rests, accidentals, clef, key signature, and time signature from the palette. Use ↑/↓ to change pitch, ←/→ to move the selection, Delete to remove, and Ctrl+Z to undo
+- **Reading aids**: Playback with the current note highlighted, tempo control, transposition, and note-name display (Doremi / CDE)
+- **Saving**: Multiple scores autosaved to the browser (localStorage). Export as JSON / ABC, import from JSON
+- **Photo recognition (experimental)**: Recognizes notes from a photo of cleanly printed, monophonic, treble-clef sheet music. All durations are read as quarter notes, so fix them in the editor after importing
 
-## 開発
+## Development
 
 ```bash
 npm install
-npm run dev    # 開発サーバー
-npm test       # ユニットテスト (vitest)
-npm run build  # ビルド
+npm run dev    # dev server
+npm test       # unit tests (vitest)
+npm run build  # build
 ```
 
-main への push で GitHub Actions が GitHub Pages へ自動デプロイする。
+Pushing to main deploys to GitHub Pages via GitHub Actions.

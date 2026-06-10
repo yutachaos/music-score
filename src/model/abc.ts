@@ -36,14 +36,18 @@ function noteName(p: Pitch, style: NoteNameStyle): string {
   return base + (p.accidental ? ACC_LABEL[p.accidental] : '')
 }
 
-// 16th-note units per measure, e.g. "4/4" -> 16
+// 32nd-note units per measure, e.g. "4/4" -> 32
 export function measureUnits(timeSig: string): number {
   const [num, den] = timeSig.split('/').map(Number)
-  return num * (16 / den)
+  return num * (32 / den)
+}
+
+function eventUnits(ev: NoteEvent): number {
+  return (32 / ev.duration) * (ev.dotted ? 1.5 : 1)
 }
 
 function eventToAbc(ev: NoteEvent, opts: AbcOptions): string {
-  const units = 16 / ev.duration
+  const units = eventUnits(ev)
   if (ev.kind === 'rest') return `z${units}`
   const style = opts.noteNames ?? 'off'
   const annotation =
@@ -59,44 +63,58 @@ export interface AbcResult {
   eventRanges: { start: number; end: number }[]
 }
 
+const MEASURES_PER_LINE = 4
+
 export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcResult {
   const perMeasure = measureUnits(score.timeSig)
   const parts: string[] = []
+  const seps: string[] = [] // separator after each part
   const eventPartIndex: number[] = []
   let filled = 0
+  let measures = 0
   for (const ev of score.events) {
     eventPartIndex.push(parts.length)
     parts.push(eventToAbc(ev, opts))
-    filled += 16 / ev.duration
+    seps.push(' ')
+    filled += eventUnits(ev)
     if (filled >= perMeasure) {
+      measures++
       parts.push('|')
+      seps.push(measures % MEASURES_PER_LINE === 0 ? '\n' : ' ')
       filled = 0
     }
   }
-  if (parts.length === 0) parts.push('x4')
+  if (parts.length === 0) {
+    parts.push('x8')
+    seps.push(' ')
+  }
   if (parts.at(-1) === '|') parts[parts.length - 1] = '|]'
-  else parts.push('|]')
+  else {
+    parts.push('|]')
+    seps.push(' ')
+  }
 
   const header = [
     'X:1',
     `T:${score.title}`,
     `M:${score.timeSig}`,
-    'L:1/16',
+    'L:1/32',
     `Q:1/4=${score.tempo}`,
-    `K:${score.keySig}`,
+    `K:${score.keySig}${score.clef === 'bass' ? ' clef=bass' : ''}`,
   ].join('\n')
 
   const partOffsets: number[] = []
-  let pos = header.length + 1
-  for (const part of parts) {
-    partOffsets.push(pos)
-    pos += part.length + 1
+  let body = ''
+  for (let i = 0; i < parts.length; i++) {
+    partOffsets.push(header.length + 1 + body.length)
+    body += parts[i]
+    if (i < parts.length - 1) body += seps[i]
   }
   const eventRanges = eventPartIndex.map((pi) => ({
     start: partOffsets[pi],
     end: partOffsets[pi] + parts[pi].length,
   }))
-  return { abc: `${header}\n${parts.join(' ')}`, eventRanges }
+  return { abc: `${header}\n${body}`, eventRanges }
 }
 
 export function scoreToAbc(score: Score, opts: AbcOptions = {}): string {

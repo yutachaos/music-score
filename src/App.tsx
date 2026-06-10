@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { TuneObject } from 'abcjs'
 import { scoreToAbcWithRanges, type NoteNameStyle } from './model/abc'
-import { trebleStaffPitch } from './model/pitch'
+import { staffPitch } from './model/pitch'
 import type { Accidental, Duration, Score } from './model/types'
 import { ScoreView } from './editor/ScoreView'
 import { Palette } from './editor/Palette'
@@ -20,6 +20,7 @@ export default function App() {
   const [storedScores, setStoredScores] = useState<Score[]>(initialScores)
   const editor = useEditor(initialScores[0])
   const [duration, setDuration] = useState<Duration>(4)
+  const [dotted, setDotted] = useState(false)
   const [accidental, setAccidental] = useState<Accidental | ''>('')
   const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
   const [transpose, setTranspose] = useState(0)
@@ -56,7 +57,7 @@ export default function App() {
   }
 
   function deleteScore() {
-    if (!window.confirm(`「${score.title}」を削除しますか?`)) return
+    if (!window.confirm(`Delete "${score.title}"?`)) return
     const rest = scores.filter((s) => s.id !== score.id)
     const next = rest.length > 0 ? rest : [newScore()]
     setStoredScores(next)
@@ -72,7 +73,7 @@ export default function App() {
   function importJson(file: File) {
     file.text().then((text) => {
       const imported = JSON.parse(text) as Score
-      const s = { ...imported, id: crypto.randomUUID() }
+      const s: Score = { ...imported, clef: imported.clef ?? 'treble', id: crypto.randomUUID() }
       setStoredScores([...scores, s])
       editor.replaceScore(s)
     })
@@ -109,11 +110,12 @@ export default function App() {
   })
 
   function handleStaffClick(steps: number) {
-    const pitch = trebleStaffPitch(steps)
+    const pitch = staffPitch(steps, score.clef)
     editor.insertEvent({
       kind: 'note',
       pitch: accidental ? { ...pitch, accidental } : pitch,
       duration,
+      ...(dotted && { dotted }),
     })
   }
 
@@ -160,16 +162,23 @@ export default function App() {
       <Palette
         duration={duration}
         onDuration={setDuration}
+        dotted={dotted}
+        onDotted={setDotted}
         accidental={accidental}
         onAccidental={setAccidental}
+        clef={score.clef}
+        onClef={(clef) => editor.setMeta({ clef })}
         keySig={score.keySig}
         onKeySig={(keySig) => editor.setMeta({ keySig })}
         timeSig={score.timeSig}
         onTimeSig={(timeSig) => editor.setMeta({ timeSig })}
-        onInsertRest={() => editor.insertEvent({ kind: 'rest', duration })}
+        onInsertRest={() =>
+          editor.insertEvent({ kind: 'rest', duration, ...(dotted && { dotted }) })
+        }
       />
       <div className="toolbar">
         <button
+          className="primary"
           onClick={() => {
             if (playback.playing) playback.stop()
             else if (visualRef.current) playback.play(visualRef.current)
@@ -207,19 +216,22 @@ export default function App() {
         </label>
       </div>
       <p className="hint">
-        五線をクリックで音符を挿入（選択音符の後ろに入る）/ ↑↓: 音高 / ←→: 選択移動 / Delete: 削除 / Ctrl+Z: 元に戻す / Esc: 選択解除
+        Click the staff to insert a note (after the selected one) / ↑↓: pitch / ←→: move selection /
+        Delete: remove / Ctrl+Z: undo / Esc: deselect
       </p>
-      <ScoreView
-        abc={abc}
-        eventRanges={eventRanges}
-        selected={editor.selected}
-        transpose={transpose}
-        onSelectEvent={editor.setSelected}
-        onStaffClick={handleStaffClick}
-        onRender={(v) => {
-          visualRef.current = v
-        }}
-      />
+      <div className="score-card">
+        <ScoreView
+          abc={abc}
+          eventRanges={eventRanges}
+          selected={editor.selected}
+          transpose={transpose}
+          onSelectEvent={editor.setSelected}
+          onStaffClick={handleStaffClick}
+          onRender={(v) => {
+            visualRef.current = v
+          }}
+        />
+      </div>
       <OmrPage onImport={importOmr} />
     </main>
   )

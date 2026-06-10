@@ -4,7 +4,12 @@ const KEY = 'music-score.scores'
 
 export function loadScores(): Score[] {
   const raw = localStorage.getItem(KEY)
-  return raw ? (JSON.parse(raw) as { scores: Score[] }).scores : []
+  if (!raw) return []
+  // scores saved before clef support lack the field
+  return (JSON.parse(raw) as { scores: Score[] }).scores.map((s) => ({
+    ...s,
+    clef: s.clef ?? 'treble',
+  }))
 }
 
 export function saveScores(scores: Score[]) {
@@ -15,6 +20,7 @@ export function newScore(): Score {
   return {
     id: crypto.randomUUID(),
     title: '新しい楽譜',
+    clef: 'treble',
     keySig: 'C',
     timeSig: '4/4',
     tempo: 100,

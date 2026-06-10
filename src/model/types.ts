@@ -14,11 +14,15 @@ export interface NoteEvent {
   kind: 'note' | 'rest'
   pitch?: Pitch
   duration: Duration
+  dotted?: boolean
 }
+
+export type Clef = 'treble' | 'bass'
 
 export interface Score {
   id: string
   title: string
+  clef: Clef
   keySig: string
   timeSig: string
   tempo: number

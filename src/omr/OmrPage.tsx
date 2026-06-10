@@ -47,9 +47,10 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[]) => void 
 
   return (
     <details className="omr">
-      <summary>写真から読み取り（実験的）</summary>
+      <summary>Photo recognition (experimental)</summary>
       <p className="hint">
-        きれいに印刷された単旋律・ト音記号の譜面のみ対応。音価はすべて四分音符として読み取るので、取込後にエディタで修正してください。
+        Works only with cleanly printed, monophonic, treble-clef scores. All durations are read as
+        quarter notes — fix them in the editor after importing.
       </p>
       <label className="file-button">
         画像を選択
@@ -66,7 +67,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[]) => void 
       {error && <p className="omr-error">{error}</p>}
       {result && (
         <p>
-          {result.events.length} 個の音符を検出{' '}
+          Detected {result.events.length} notes{' '}
           <button onClick={() => onImport(result.events)}>新しい楽譜として取込</button>
         </p>
       )}

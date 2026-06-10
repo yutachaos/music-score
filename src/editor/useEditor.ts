@@ -50,7 +50,7 @@ export function useEditor(initial: Score) {
     setSelected(null)
   }
 
-  function setMeta(meta: Partial<Pick<Score, 'title' | 'keySig' | 'timeSig' | 'tempo'>>) {
+  function setMeta(meta: Partial<Pick<Score, 'title' | 'clef' | 'keySig' | 'timeSig' | 'tempo'>>) {
     setScore((s) => ({ ...s, ...meta }))
   }
 

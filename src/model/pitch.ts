@@ -1,4 +1,4 @@
-import type { Pitch, Step } from './types'
+import type { Clef, Pitch, Step } from './types'
 
 const STEPS: Step[] = ['C', 'D', 'E', 'F', 'G', 'A', 'B']
 
@@ -11,9 +11,10 @@ export function diatonicToPitch(d: number): Pitch {
   return { step: STEPS[((d % 7) + 7) % 7], octave: Math.floor(d / 7) }
 }
 
-// steps = diatonic steps below the treble top line (F5), one per half line-gap
-export function trebleStaffPitch(steps: number): Pitch {
-  return diatonicToPitch(38 - steps)
+// steps = diatonic steps below the staff top line, one per half line-gap
+// (treble top line = F5 = 38, bass top line = A3 = 26)
+export function staffPitch(steps: number, clef: Clef = 'treble'): Pitch {
+  return diatonicToPitch((clef === 'bass' ? 26 : 38) - steps)
 }
 
 const STEP_SEMITONES: Record<Step, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }

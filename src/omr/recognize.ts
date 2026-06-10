@@ -1,5 +1,5 @@
 import type { NoteEvent } from '../model/types'
-import { trebleStaffPitch } from '../model/pitch'
+import { staffPitch } from '../model/pitch'
 
 export interface BitmapLike {
   data: Uint8ClampedArray
@@ -73,7 +73,7 @@ function findStaff(bin: Uint8Array, width: number, height: number): StaffInfo {
       start = -1
     }
   }
-  if (groups.length < 5) throw new Error('五線を検出できませんでした')
+  if (groups.length < 5) throw new Error('Could not detect staff lines')
   const lines = groups.slice(0, 5).map((g) => g.center)
   const spacing = (lines[4] - lines[0]) / 4
   const thickness = groups.slice(0, 5).reduce((a, g) => a + g.size, 0) / 5
@@ -174,7 +174,7 @@ export function recognize(image: BitmapLike): OmrResult {
   const heads = findHeads(filtered, width, height, staff.spacing)
   const events: NoteEvent[] = heads.map((h) => {
     const steps = Math.round((h.y - staff.lines[0]) / (staff.spacing / 2))
-    return { kind: 'note', pitch: trebleStaffPitch(steps), duration: 4 }
+    return { kind: 'note', pitch: staffPitch(steps), duration: 4 }
   })
   return { events, heads, staffLines: staff.lines, staffSpacing: staff.spacing }
 }
