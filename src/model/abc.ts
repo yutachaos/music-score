@@ -1,6 +1,13 @@
 import type { NoteEvent, Pitch, Score, Step } from './types'
+import { transposePitch } from './pitch'
 
 export type NoteNameStyle = 'off' | 'doremi' | 'cde'
+
+export interface AbcOptions {
+  noteNames?: NoteNameStyle
+  // semitones applied to displayed note names (matches abcjs visualTranspose)
+  nameTranspose?: number
+}
 
 const DOREMI: Record<Step, string> = {
   C: 'ド',
@@ -35,10 +42,14 @@ export function measureUnits(timeSig: string): number {
   return num * (16 / den)
 }
 
-function eventToAbc(ev: NoteEvent, style: NoteNameStyle): string {
+function eventToAbc(ev: NoteEvent, opts: AbcOptions): string {
   const units = 16 / ev.duration
   if (ev.kind === 'rest') return `z${units}`
-  const annotation = style === 'off' ? '' : `"^${noteName(ev.pitch!, style)}"`
+  const style = opts.noteNames ?? 'off'
+  const annotation =
+    style === 'off'
+      ? ''
+      : `"^${noteName(transposePitch(ev.pitch!, opts.nameTranspose ?? 0), style)}"`
   return `${annotation}${abcPitch(ev.pitch!)}${units}`
 }
 
@@ -48,18 +59,14 @@ export interface AbcResult {
   eventRanges: { start: number; end: number }[]
 }
 
-export function scoreToAbcWithRanges(
-  score: Score,
-  opts: { noteNames?: NoteNameStyle } = {},
-): AbcResult {
-  const style = opts.noteNames ?? 'off'
+export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcResult {
   const perMeasure = measureUnits(score.timeSig)
   const parts: string[] = []
   const eventPartIndex: number[] = []
   let filled = 0
   for (const ev of score.events) {
     eventPartIndex.push(parts.length)
-    parts.push(eventToAbc(ev, style))
+    parts.push(eventToAbc(ev, opts))
     filled += 16 / ev.duration
     if (filled >= perMeasure) {
       parts.push('|')
@@ -92,9 +99,6 @@ export function scoreToAbcWithRanges(
   return { abc: `${header}\n${parts.join(' ')}`, eventRanges }
 }
 
-export function scoreToAbc(
-  score: Score,
-  opts: { noteNames?: NoteNameStyle } = {},
-): string {
+export function scoreToAbc(score: Score, opts: AbcOptions = {}): string {
   return scoreToAbcWithRanges(score, opts).abc
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diatonicToPitch, pitchToDiatonic, trebleStaffPitch } from './pitch'
+import { diatonicToPitch, pitchToDiatonic, transposePitch, trebleStaffPitch } from './pitch'
 
 describe('diatonic conversion', () => {
   it('round-trips pitches', () => {
@@ -10,6 +10,27 @@ describe('diatonic conversion', () => {
     expect(diatonicToPitch(pitchToDiatonic({ step: 'B', octave: 3 }))).toEqual({
       step: 'B',
       octave: 3,
+    })
+  })
+})
+
+describe('transposePitch', () => {
+  it('transposes chromatically with sharp spelling', () => {
+    expect(transposePitch({ step: 'C', octave: 4 }, 2)).toEqual({ step: 'D', octave: 4 })
+    expect(transposePitch({ step: 'C', octave: 4 }, 1)).toEqual({
+      step: 'C',
+      octave: 4,
+      accidental: 'sharp',
+    })
+    expect(transposePitch({ step: 'B', octave: 4 }, 1)).toEqual({ step: 'C', octave: 5 })
+    expect(transposePitch({ step: 'C', octave: 4 }, -1)).toEqual({ step: 'B', octave: 3 })
+  })
+
+  it('preserves spelling at zero', () => {
+    expect(transposePitch({ step: 'B', octave: 4, accidental: 'flat' }, 0)).toEqual({
+      step: 'B',
+      octave: 4,
+      accidental: 'flat',
     })
   })
 })

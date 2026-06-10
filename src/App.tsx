@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
-import { scoreToAbcWithRanges } from './model/abc'
+import { useEffect, useRef, useState } from 'react'
+import type { TuneObject } from 'abcjs'
+import { scoreToAbcWithRanges, type NoteNameStyle } from './model/abc'
 import { trebleStaffPitch } from './model/pitch'
 import type { Accidental, Duration, Score } from './model/types'
 import { ScoreView } from './editor/ScoreView'
 import { Palette } from './editor/Palette'
 import { useEditor } from './editor/useEditor'
+import { usePlayback } from './playback/usePlayback'
 
 const initialScore: Score = {
   id: 'score-1',
@@ -19,9 +21,19 @@ export default function App() {
   const editor = useEditor(initialScore)
   const [duration, setDuration] = useState<Duration>(4)
   const [accidental, setAccidental] = useState<Accidental | ''>('')
+  const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
+  const [transpose, setTranspose] = useState(0)
+  const playback = usePlayback()
+  const visualRef = useRef<TuneObject | null>(null)
 
   const { score } = editor
-  const { abc, eventRanges } = scoreToAbcWithRanges(score)
+  const { abc, eventRanges } = scoreToAbcWithRanges(score, {
+    noteNames,
+    nameTranspose: transpose,
+  })
+
+  const stopPlayback = playback.stop
+  useEffect(() => stopPlayback, [abc, transpose, stopPlayback])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -83,6 +95,44 @@ export default function App() {
         onTimeSig={(timeSig) => editor.setMeta({ timeSig })}
         onInsertRest={() => editor.insertEvent({ kind: 'rest', duration })}
       />
+      <div className="toolbar">
+        <button
+          onClick={() => {
+            if (playback.playing) playback.stop()
+            else if (visualRef.current) playback.play(visualRef.current)
+          }}
+        >
+          {playback.playing ? '■ 停止' : '▶ 再生'}
+        </button>
+        <label>
+          テンポ {score.tempo}
+          <input
+            type="range"
+            min={40}
+            max={220}
+            value={score.tempo}
+            onChange={(e) => editor.setMeta({ tempo: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          移調 {transpose > 0 ? `+${transpose}` : transpose}
+          <input
+            type="range"
+            min={-12}
+            max={12}
+            value={transpose}
+            onChange={(e) => setTranspose(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          音名
+          <select value={noteNames} onChange={(e) => setNoteNames(e.target.value as NoteNameStyle)}>
+            <option value="off">なし</option>
+            <option value="doremi">ドレミ</option>
+            <option value="cde">CDE</option>
+          </select>
+        </label>
+      </div>
       <p className="hint">
         五線をクリックで音符を挿入（選択音符の後ろに入る）/ ↑↓: 音高 / ←→: 選択移動 / Delete: 削除 / Ctrl+Z: 元に戻す / Esc: 選択解除
       </p>
@@ -90,8 +140,12 @@ export default function App() {
         abc={abc}
         eventRanges={eventRanges}
         selected={editor.selected}
+        transpose={transpose}
         onSelectEvent={editor.setSelected}
         onStaffClick={handleStaffClick}
+        onRender={(v) => {
+          visualRef.current = v
+        }}
       />
     </main>
   )

@@ -1,21 +1,31 @@
 import { useEffect, useRef } from 'react'
-import abcjs from 'abcjs'
+import abcjs, { type TuneObject } from 'abcjs'
 
 export interface ScoreViewProps {
   abc: string
   eventRanges: { start: number; end: number }[]
   selected: number | null
+  transpose: number
   onSelectEvent: (index: number | null) => void
   // steps: diatonic steps below the treble top line at the click position
   onStaffClick: (steps: number) => void
+  onRender: (visualObj: TuneObject) => void
 }
 
-export function ScoreView({ abc, eventRanges, selected, onSelectEvent, onStaffClick }: ScoreViewProps) {
+export function ScoreView({
+  abc,
+  eventRanges,
+  selected,
+  transpose,
+  onSelectEvent,
+  onStaffClick,
+  onRender,
+}: ScoreViewProps) {
   const ref = useRef<HTMLDivElement>(null)
   const clickedElement = useRef(false)
-  const callbacks = useRef({ eventRanges, onSelectEvent, onStaffClick })
+  const callbacks = useRef({ eventRanges, onSelectEvent, onStaffClick, onRender })
   useEffect(() => {
-    callbacks.current = { eventRanges, onSelectEvent, onStaffClick }
+    callbacks.current = { eventRanges, onSelectEvent, onStaffClick, onRender }
   })
 
   useEffect(() => {
@@ -23,6 +33,7 @@ export function ScoreView({ abc, eventRanges, selected, onSelectEvent, onStaffCl
       responsive: 'resize',
       add_classes: true,
       selectionColor: '#0a84ff',
+      visualTranspose: transpose,
       clickListener: (abcelem) => {
         clickedElement.current = true
         const { eventRanges, onSelectEvent } = callbacks.current
@@ -32,12 +43,13 @@ export function ScoreView({ abc, eventRanges, selected, onSelectEvent, onStaffCl
         onSelectEvent(idx >= 0 ? idx : null)
       },
     })
+    callbacks.current.onRender(visual[0])
     const range = selected !== null ? eventRanges[selected] : null
     if (range) {
       const engraver = (visual[0] as unknown as { engraver?: { rangeHighlight?: (s: number, e: number) => void } }).engraver
       engraver?.rangeHighlight?.(range.start, range.end)
     }
-  }, [abc, selected]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [abc, selected, transpose]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleClick(e: React.MouseEvent) {
     if (clickedElement.current) {
