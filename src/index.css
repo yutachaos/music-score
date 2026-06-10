@@ -13,3 +13,58 @@ main {
   margin: 0 auto;
   padding: 1rem;
 }
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+header h1 {
+  font-size: 1.4rem;
+}
+
+header input {
+  font-size: 1rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.palette-group {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.palette button {
+  font-size: 1rem;
+  min-width: 2.2rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.palette button.active {
+  background: #0a84ff;
+  color: #fff;
+  border-color: #0a84ff;
+}
+
+.palette label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.hint {
+  font-size: 0.8rem;
+  color: #777;
+}

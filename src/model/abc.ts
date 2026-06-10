@@ -42,15 +42,23 @@ function eventToAbc(ev: NoteEvent, style: NoteNameStyle): string {
   return `${annotation}${abcPitch(ev.pitch!)}${units}`
 }
 
-export function scoreToAbc(
+export interface AbcResult {
+  abc: string
+  // char range of each event in `abc`, parallel to score.events
+  eventRanges: { start: number; end: number }[]
+}
+
+export function scoreToAbcWithRanges(
   score: Score,
   opts: { noteNames?: NoteNameStyle } = {},
-): string {
+): AbcResult {
   const style = opts.noteNames ?? 'off'
   const perMeasure = measureUnits(score.timeSig)
   const parts: string[] = []
+  const eventPartIndex: number[] = []
   let filled = 0
   for (const ev of score.events) {
+    eventPartIndex.push(parts.length)
     parts.push(eventToAbc(ev, style))
     filled += 16 / ev.duration
     if (filled >= perMeasure) {
@@ -61,14 +69,32 @@ export function scoreToAbc(
   if (parts.length === 0) parts.push('x4')
   if (parts.at(-1) === '|') parts[parts.length - 1] = '|]'
   else parts.push('|]')
-  const body = parts.join(' ')
-  return [
+
+  const header = [
     'X:1',
     `T:${score.title}`,
     `M:${score.timeSig}`,
     'L:1/16',
     `Q:1/4=${score.tempo}`,
     `K:${score.keySig}`,
-    body,
   ].join('\n')
+
+  const partOffsets: number[] = []
+  let pos = header.length + 1
+  for (const part of parts) {
+    partOffsets.push(pos)
+    pos += part.length + 1
+  }
+  const eventRanges = eventPartIndex.map((pi) => ({
+    start: partOffsets[pi],
+    end: partOffsets[pi] + parts[pi].length,
+  }))
+  return { abc: `${header}\n${parts.join(' ')}`, eventRanges }
+}
+
+export function scoreToAbc(
+  score: Score,
+  opts: { noteNames?: NoteNameStyle } = {},
+): string {
+  return scoreToAbcWithRanges(score, opts).abc
 }
