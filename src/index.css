@@ -124,3 +124,24 @@ header input {
   fill: #e8336d;
   color: #e8336d;
 }
+
+.omr {
+  margin-top: 1.5rem;
+  border-top: 1px solid #eee;
+  padding-top: 0.5rem;
+}
+
+.omr summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.omr-canvas {
+  max-width: 100%;
+  border: 1px solid #ddd;
+  margin-top: 0.5rem;
+}
+
+.omr-error {
+  color: #c0392b;
+}

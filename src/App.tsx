@@ -8,6 +8,8 @@ import { Palette } from './editor/Palette'
 import { useEditor } from './editor/useEditor'
 import { usePlayback } from './playback/usePlayback'
 import { download, loadScores, newScore, saveScores } from './model/store'
+import { OmrPage } from './omr/OmrPage'
+import type { NoteEvent } from './model/types'
 
 const initialScores = (() => {
   const stored = loadScores()
@@ -59,6 +61,12 @@ export default function App() {
     const next = rest.length > 0 ? rest : [newScore()]
     setStoredScores(next)
     editor.replaceScore(next[0])
+  }
+
+  function importOmr(events: NoteEvent[]) {
+    const s = { ...newScore(), title: '読み取り結果', events }
+    setStoredScores([...scores, s])
+    editor.replaceScore(s)
   }
 
   function importJson(file: File) {
@@ -212,6 +220,7 @@ export default function App() {
           visualRef.current = v
         }}
       />
+      <OmrPage onImport={importOmr} />
     </main>
   )
 }
