@@ -6,7 +6,7 @@ import type { Accidental, Duration, Score } from './model/types'
 import { ScoreView } from './editor/ScoreView'
 import { Palette } from './editor/Palette'
 import { useEditor } from './editor/useEditor'
-import { usePlayback } from './playback/usePlayback'
+import { usePlayback, type MetronomeMode } from './playback/usePlayback'
 import { download, loadScores, newScore, saveScores } from './model/store'
 import { OmrPage } from './omr/OmrPage'
 import type { NoteEvent } from './model/types'
@@ -209,6 +209,17 @@ export default function App() {
             value={transpose}
             onChange={(e) => setTranspose(Number(e.target.value))}
           />
+        </label>
+        <label>
+          Metronome
+          <select
+            value={playback.metronome}
+            onChange={(e) => playback.setMetronome(e.target.value as MetronomeMode)}
+          >
+            <option value="off">Off</option>
+            <option value="downbeat">On-beat</option>
+            <option value="offbeat">Off-beat</option>
+          </select>
         </label>
         <label>
           Note names
