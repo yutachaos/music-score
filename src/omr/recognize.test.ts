@@ -153,6 +153,26 @@ describe('recognize', () => {
     expect(result.events.map((e) => e.tie ?? false)).toEqual([true, false])
   })
 
+  it('auto-detects a bass clef from a compact leftmost glyph', () => {
+    const img = makeImage(300, 140)
+    drawStaff(img)
+    drawBand(img, 14, 38, TOP - 2, TOP + 28) // 2.5s wide, ~3s tall: bass clef body
+    drawHead(img, 180, TOP) // top line -> A3 in bass
+    const result = recognize(img)
+    expect(result.clef).toBe('bass')
+    expect(result.events.map((e) => e.pitch)).toEqual([{ step: 'A', octave: 3 }])
+  })
+
+  it('auto-detects a treble clef from a tall leftmost glyph', () => {
+    const img = makeImage(300, 160)
+    drawStaff(img)
+    drawBand(img, 16, 36, TOP - 15, TOP + 55) // ~7s tall: treble clef
+    drawHead(img, 180, TOP) // top line -> F5 in treble
+    const result = recognize(img)
+    expect(result.clef).toBe('treble')
+    expect(result.events.map((e) => e.pitch)).toEqual([{ step: 'F', octave: 5 }])
+  })
+
   it('classifies hollow heads as half and whole notes', () => {
     const img = makeImage(260, 140)
     drawStaff(img)

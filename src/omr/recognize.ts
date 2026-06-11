@@ -12,6 +12,7 @@ export interface OmrResult {
   heads: { x: number; y: number }[]
   staffLines: number[]
   staffSpacing: number
+  clef: Clef
 }
 
 function binarize(image: BitmapLike): Uint8Array {
@@ -691,7 +692,53 @@ function findRests(
   return rests
 }
 
-export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
+// the clef is the leftmost large glyph on the staff: a treble clef extends far
+// above and below the staff (~7 spacings tall), a bass clef fits inside (~3).
+function detectClef(bin: Uint8Array, width: number, height: number, staff: StaffInfo): Clef | null {
+  const s = staff.spacing
+  const visited = new Uint8Array(width * height)
+  let best: { minX: number; h: number } | null = null
+  for (let yy = 0; yy < height; yy++) {
+    for (let xx = 0; xx < width; xx++) {
+      const start = yy * width + xx
+      if (!bin[start] || visited[start]) continue
+      const stack = [start]
+      visited[start] = 1
+      let area = 0
+      let minX = width
+      let maxX = 0
+      let minY = height
+      let maxY = 0
+      while (stack.length > 0) {
+        const p = stack.pop()!
+        const x = p % width
+        const y = (p / width) | 0
+        area++
+        minX = Math.min(minX, x)
+        maxX = Math.max(maxX, x)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+        for (const q of [p - 1, p + 1, p - width, p + width]) {
+          if (q < 0 || q >= width * height || visited[q] || !bin[q]) continue
+          if ((q === p - 1 || q === p + 1) && ((q / width) | 0) !== y) continue
+          visited[q] = 1
+          stack.push(q)
+        }
+      }
+      const w = maxX - minX + 1
+      const h = maxY - minY + 1
+      const cx = (minX + maxX) / 2
+      const cyCorr = (minY + maxY) / 2 - staff.slope * cx
+      if (cyCorr < staff.lines[0] - 3 * s || cyCorr > staff.lines[4] + 3 * s) continue
+      if (area < 2.5 * s * s || h < 2.2 * s || w < 1.4 * s || w > 4 * s) continue
+      if (!best || minX < best.minX) best = { minX, h }
+    }
+  }
+  if (!best) return null
+  return best.h > 5 * s ? 'treble' : 'bass'
+}
+
+export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
   const staff = findStaff(bin, width, height)
@@ -699,6 +746,7 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const hollowHeads = findHollowHeads(bin, width, height, s)
   const binOrig = bin.slice()
   removeStaffLines(bin, width, height, staff)
+  const usedClef = clef ?? detectClef(bin, width, height, staff) ?? 'treble'
   const filtered = filterHeadPixels(bin, width, height, s)
   const hollowCap = 3.5 * s * s
   // only read heads near the detected staff (multi-staff pages: nearest staff only)
@@ -743,7 +791,7 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
       head,
       event: {
         kind: 'note' as const,
-        pitch: staffPitch(steps, clef),
+        pitch: staffPitch(steps, usedClef),
         duration,
         ...(dotted && { dotted }),
       },
@@ -780,6 +828,7 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
     heads: merged.map((m) => m.head),
     staffLines: staff.lines,
     staffSpacing: s,
+    clef: usedClef,
   }
 }
 

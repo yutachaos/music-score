@@ -6,10 +6,12 @@ import { recognize } from './recognize'
 describe('sample.png (bass-clef rhythm staff)', () => {
   it('recognizes notes, rests, dots, and the tie', () => {
     const png = PNG.sync.read(readFileSync('sample.png'))
-    const result = recognize(
-      { data: new Uint8ClampedArray(png.data), width: png.width, height: png.height },
-      'bass',
-    )
+    const result = recognize({
+      data: new Uint8ClampedArray(png.data),
+      width: png.width,
+      height: png.height,
+    })
+    expect(result.clef).toBe('bass')
     const gaps = result.staffLines.slice(1).map((y, i) => y - result.staffLines[i])
     for (const gap of gaps) {
       expect(gap).toBeGreaterThan(result.staffSpacing - 2)

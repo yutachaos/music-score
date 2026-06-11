@@ -13,13 +13,14 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
   const [result, setResult] = useState<OmrResult | null>(null)
   const [error, setError] = useState('')
 
-  function run(image: ImageData, currentClef: Clef) {
+  function run(image: ImageData, currentClef?: Clef) {
     const canvas = canvasRef.current!
     const ctx = canvas.getContext('2d')!
     ctx.putImageData(image, 0, 0)
     try {
       const r = recognize(image, currentClef)
       setResult(r)
+      setClef(r.clef)
       setError('')
       ctx.strokeStyle = 'rgba(0, 120, 255, 0.7)'
       ctx.lineWidth = 1
@@ -53,7 +54,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
       const ctx = canvas.getContext('2d')!
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       imageRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      run(imageRef.current, clef)
+      run(imageRef.current)
     }
     img.src = URL.createObjectURL(file)
   }
@@ -83,7 +84,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
         />
       </label>{' '}
       <label>
-        Clef{' '}
+        Clef (auto-detected){' '}
         <select value={clef} onChange={(e) => handleClef(e.target.value as Clef)}>
           <option value="treble">Treble</option>
           <option value="bass">Bass</option>
@@ -92,8 +93,8 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
       {error && <p className="omr-error">{error}</p>}
       {result && (
         <p>
-          Detected {result.events.length} notes and rests{' '}
-          <button onClick={() => onImport(result.events, clef)}>Import as new score</button>
+          Detected {result.events.length} notes and rests ({result.clef} clef){' '}
+          <button onClick={() => onImport(result.events, result.clef)}>Import as new score</button>
         </p>
       )}
       <canvas ref={canvasRef} className="omr-canvas" />
