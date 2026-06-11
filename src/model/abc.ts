@@ -80,8 +80,13 @@ const MEASURES_PER_LINE = 4
 
 export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcResult {
   const perMeasure = measureUnits(score.timeSig)
+  // beam group size in 32nd units: dotted-quarter beats in compound meters
+  const [num, den] = score.timeSig.split('/').map(Number)
+  const beatUnits = den === 8 && num % 3 === 0 ? 12 : 32 / den
   const parts: string[] = []
   const seps: string[] = [] // separator after each part
+  const beamable: boolean[] = []
+  const pieceEnd: number[] = [] // fill position after each part, within its measure
   const eventParts: { first: number; last: number }[] = []
   let filled = 0
   let measures = 0
@@ -89,6 +94,8 @@ export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcRe
     measures++
     parts.push('|')
     seps.push(measures % MEASURES_PER_LINE === 0 ? '\n' : ' ')
+    beamable.push(false)
+    pieceEnd.push(0)
     filled = 0
   }
   for (const ev of score.events) {
@@ -99,11 +106,15 @@ export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcRe
     while (units > 0) {
       const take = Math.min(units, perMeasure - filled)
       const pieces = decompose(take)
+      let pos = filled
       for (let j = 0; j < pieces.length; j++) {
         const lastPiece = units - take === 0 && j === pieces.length - 1
         const tied = ev.kind === 'note' && (!lastPiece || ev.tie)
         parts.push(pieceToAbc(ev, pieces[j], opts, isFirstPiece) + (tied ? '-' : ''))
         seps.push(' ')
+        pos += pieces[j]
+        beamable.push(ev.kind === 'note' && pieces[j] < 8)
+        pieceEnd.push(pos)
         isFirstPiece = false
       }
       units -= take
@@ -111,6 +122,10 @@ export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcRe
       if (filled >= perMeasure) pushBar()
     }
     eventParts.push({ first, last: parts.length - (parts.at(-1) === '|' ? 2 : 1) })
+  }
+  // beam flagged notes within a beat: no space between them joins their flags
+  for (let i = 0; i + 1 < parts.length; i++) {
+    if (beamable[i] && beamable[i + 1] && pieceEnd[i] % beatUnits !== 0) seps[i] = ''
   }
   if (parts.length === 0) {
     parts.push('x8')

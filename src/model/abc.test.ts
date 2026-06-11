@@ -47,7 +47,28 @@ describe('scoreToAbc', () => {
         ],
       }),
     )
-    expect(body(abc)).toBe('C8 D4 E2 z16 |]')
+    expect(body(abc)).toBe('C8 D4E2 z16 |]')
+  })
+
+  it('beams flagged notes within a beat', () => {
+    const eighth = (step: 'C' | 'D' | 'E' | 'F') =>
+      ({ kind: 'note', pitch: { step, octave: 4 }, duration: 8 }) as const
+    const abc = scoreToAbc(score({ events: [eighth('C'), eighth('D'), eighth('E'), eighth('F')] }))
+    expect(body(abc)).toBe('C4D4 E4F4 |]')
+  })
+
+  it('does not beam across rests or quarter notes', () => {
+    const abc = scoreToAbc(
+      score({
+        events: [
+          { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 8 },
+          { kind: 'rest', duration: 8 },
+          { kind: 'note', pitch: { step: 'D', octave: 4 }, duration: 8 },
+          { kind: 'note', pitch: { step: 'E', octave: 4 }, duration: 4 },
+        ],
+      }),
+    )
+    expect(body(abc)).toBe('C4 z4 D4 E8 |]')
   })
 
   it('inserts barlines per time signature', () => {
