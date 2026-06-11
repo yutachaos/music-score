@@ -19,5 +19,12 @@ describe('sample.png (bass-clef rhythm staff)', () => {
     for (const e of result.events) {
       expect(e.pitch).toEqual({ step: 'C', octave: 3 })
     }
+    expect(result.events.map((e) => e.duration)).toEqual([
+      16, 16, 16, 16, 4, 8, 8, 16, 16, 16, 16, 4, 4, 16, 8, 16,
+    ])
+    expect(result.events.map((e) => e.dotted ?? false)).toEqual([
+      false, false, false, false, false, false, false, false,
+      false, false, false, true, false, false, false, false,
+    ])
   })
 })

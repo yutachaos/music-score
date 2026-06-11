@@ -188,9 +188,18 @@ function filterHeadPixels(bin: Uint8Array, width: number, height: number, s: num
   return out
 }
 
-function findHeads(filtered: Uint8Array, width: number, height: number, s: number) {
+interface Head {
+  x: number
+  y: number
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+function findHeads(filtered: Uint8Array, width: number, height: number, s: number): Head[] {
   const visited = new Uint8Array(width * height)
-  const heads: { x: number; y: number }[] = []
+  const heads: Head[] = []
   for (let i = 0; i < width * height; i++) {
     if (!filtered[i] || visited[i]) continue
     const stack = [i]
@@ -223,33 +232,342 @@ function findHeads(filtered: Uint8Array, width: number, height: number, s: numbe
     const w = maxX - minX + 1
     const h = maxY - minY + 1
     if (area >= 0.3 * s * s && w >= 0.5 * s && w <= 2 * s && h >= 0.5 * s && h <= 2 * s) {
-      heads.push({ x: sumX / area, y: sumY / area })
+      heads.push({ x: sumX / area, y: sumY / area, minX, maxX, minY, maxY })
     }
   }
   return heads.sort((a, b) => a.x - b.x)
+}
+
+// longest vertical black run in a column that overlaps the head's rows
+function runThroughHead(bin: Uint8Array, width: number, height: number, x: number, head: Head) {
+  let yc = -1
+  for (let y = head.minY; y <= head.maxY; y++) {
+    if (bin[y * width + x]) {
+      yc = y
+      break
+    }
+  }
+  if (yc < 0) return null
+  let top = yc
+  while (top > 0 && bin[(top - 1) * width + x]) top--
+  let bottom = yc
+  while (bottom < height - 1 && bin[(bottom + 1) * width + x]) bottom++
+  return { top, bottom, length: bottom - top + 1 }
+}
+
+// stem: a tall vertical run adjacent to the head
+function findStem(bin: Uint8Array, width: number, height: number, s: number, head: Head) {
+  let stem: { x: number; tip: number } | null = null
+  let longest = 2.2 * s
+  const x0 = Math.max(0, head.minX - 2)
+  const x1 = Math.min(width - 1, head.maxX + 2)
+  for (let x = x0; x <= x1; x++) {
+    const run = runThroughHead(bin, width, height, x, head)
+    if (!run || run.length <= longest) continue
+    longest = run.length
+    const tip = head.y - run.top > run.bottom - head.y ? run.top : run.bottom
+    stem = { x, tip }
+  }
+  return stem
+}
+
+// beams/flags: thick horizontal bands crossing columns beside the stem tip
+function countBeams(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  s: number,
+  head: Head,
+  stem: { x: number; tip: number },
+): number {
+  const dir = stem.tip < head.y ? 1 : -1 // scan from tip toward the head
+  const scanLen = Math.min(2.5 * s, Math.abs(head.y - stem.tip) - 0.8 * s)
+  let beams = 0
+  for (const dx of [-0.7 * s, 0.7 * s]) {
+    const x = Math.round(stem.x + dx)
+    if (x < 0 || x >= width) continue
+    let count = 0
+    let runLen = 0
+    for (let i = 0; i <= scanLen; i++) {
+      const y = stem.tip + dir * i
+      if (y < 0 || y >= height) break
+      if (bin[y * width + x]) runLen++
+      else {
+        // flags cross near-vertically, so allow taller runs than a beam
+        if (runLen >= 0.15 * s && runLen <= 1.3 * s) count++
+        runLen = 0
+      }
+    }
+    if (runLen >= 0.15 * s && runLen <= 1.3 * s) count++
+    beams = Math.max(beams, count)
+  }
+  return beams
+}
+
+// augmentation dot: a small isolated blob right of the head
+function hasDot(bin: Uint8Array, width: number, height: number, s: number, head: Head): boolean {
+  let dotted = false
+  const dx0 = Math.min(width - 1, head.maxX + Math.round(0.2 * s))
+  const dx1 = Math.min(width - 1, head.maxX + Math.round(1.1 * s))
+  const dy0 = Math.max(0, Math.round(head.y - 0.8 * s))
+  const dy1 = Math.min(height - 1, Math.round(head.y + 0.8 * s))
+  const seen = new Set<number>()
+  for (let y = dy0; y <= dy1 && !dotted; y++) {
+    for (let x = dx0; x <= dx1 && !dotted; x++) {
+      const start = y * width + x
+      if (!bin[start] || seen.has(start)) continue
+      const stack = [start]
+      seen.add(start)
+      let area = 0
+      let minX = width
+      let maxX = 0
+      let minY = height
+      let maxY = 0
+      let escapes = false
+      while (stack.length > 0) {
+        const p = stack.pop()!
+        const px = p % width
+        const py = (p / width) | 0
+        if (px < dx0 || px > dx1 || py < dy0 || py > dy1) {
+          escapes = true
+          continue
+        }
+        area++
+        minX = Math.min(minX, px)
+        maxX = Math.max(maxX, px)
+        minY = Math.min(minY, py)
+        maxY = Math.max(maxY, py)
+        for (const q of [p - 1, p + 1, p - width, p + width]) {
+          if (q < 0 || q >= width * height || seen.has(q) || !bin[q]) continue
+          seen.add(q)
+          stack.push(q)
+        }
+      }
+      const w = maxX - minX + 1
+      const h = maxY - minY + 1
+      if (!escapes && area >= 0.04 * s * s && w <= 0.7 * s && h <= 0.7 * s) dotted = true
+    }
+  }
+  return dotted
+}
+
+interface Hole {
+  area: number
+  sumX: number
+  sumY: number
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+
+// hollow heads (half/whole notes): white holes enclosed by black. Run on the
+// image BEFORE staff-line removal (removal eats the thin ring strokes); a staff
+// line crossing the head splits the hole in two, so nearby holes are merged.
+function findHollowHeads(bin: Uint8Array, width: number, height: number, s: number): Head[] {
+  const visited = new Uint8Array(width * height)
+  const holes: Hole[] = []
+  const maxArea = 3 * s * s
+  for (let i = 0; i < width * height; i++) {
+    if (bin[i] || visited[i]) continue
+    const stack = [i]
+    visited[i] = 1
+    let area = 0
+    let sumX = 0
+    let sumY = 0
+    let minX = width
+    let maxX = 0
+    let minY = height
+    let maxY = 0
+    let open = false
+    while (stack.length > 0) {
+      const p = stack.pop()!
+      const x = p % width
+      const y = (p / width) | 0
+      if (x === 0 || x === width - 1 || y === 0 || y === height - 1) open = true
+      area++
+      sumX += x
+      sumY += y
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+      if (area > maxArea) open = true
+      for (const q of [p - 1, p + 1, p - width, p + width]) {
+        if (q < 0 || q >= width * height || visited[q] || bin[q]) continue
+        if ((q === p - 1 || q === p + 1) && ((q / width) | 0) !== y) continue
+        visited[q] = 1
+        stack.push(q)
+      }
+    }
+    if (open) continue
+    const w = maxX - minX + 1
+    const h = maxY - minY + 1
+    if (area >= 0.05 * s * s && w >= 0.4 * s && w <= 1.6 * s && h >= 0.15 * s && h <= 1.1 * s) {
+      holes.push({ area, sumX, sumY, minX, maxX, minY, maxY })
+    }
+  }
+
+  // merge hole halves split by a staff line
+  for (let i = 0; i < holes.length; i++) {
+    for (let j = i + 1; j < holes.length; j++) {
+      const a = holes[i]
+      const b = holes[j]
+      const dxCenter = Math.abs(a.sumX / a.area - b.sumX / b.area)
+      const gap = Math.max(a.minY, b.minY) - Math.min(a.maxY, b.maxY)
+      if (dxCenter < 0.5 * s && gap >= 0 && gap <= 0.3 * s) {
+        holes[i] = {
+          area: a.area + b.area,
+          sumX: a.sumX + b.sumX,
+          sumY: a.sumY + b.sumY,
+          minX: Math.min(a.minX, b.minX),
+          maxX: Math.max(a.maxX, b.maxX),
+          minY: Math.min(a.minY, b.minY),
+          maxY: Math.max(a.maxY, b.maxY),
+        }
+        holes.splice(j, 1)
+        j = i // recheck against the merged hole
+      }
+    }
+  }
+
+  const heads: Head[] = []
+  const pad = Math.round(0.25 * s)
+  for (const hole of holes) {
+    const w = hole.maxX - hole.minX + 1
+    const h = hole.maxY - hole.minY + 1
+    // notehead holes are wide and flat; pockets between key-signature flats,
+    // digit holes, and clef curls are smaller or taller
+    if (hole.area < 0.3 * s * s || w < 0.7 * s || h < 0.35 * s || h > 0.75 * s || w < h) continue
+    // elliptical hole: rectangular white cells between stems/beams/lines fill their bbox
+    const fill = hole.area / (w * h)
+    if (fill > 0.88) continue
+    // thin ring: walk outward from the hole on 8 rays; thick glyph bodies (clef etc.) fail
+    const cx = hole.sumX / hole.area
+    const cy = hole.sumY / hole.area
+    const thin: boolean[] = []
+    for (let a = 0; a < 8; a++) {
+      const dx = Math.cos((a * Math.PI) / 4)
+      const dy = Math.sin((a * Math.PI) / 4)
+      let run = 0
+      let started = false
+      for (let t = 0; t < 2.5 * s; t++) {
+        const x = Math.round(cx + dx * t)
+        const y = Math.round(cy + dy * t)
+        if (x < 0 || x >= width || y < 0 || y >= height) break
+        if (bin[y * width + x]) {
+          started = true
+          run++
+        } else if (started) break
+      }
+      thin.push(started && run <= 0.45 * s)
+    }
+    // horizontal rays must be thin: pockets between beamed noteheads are
+    // bounded left/right by solid heads, a real ring is thin all around
+    if (!thin[0] || !thin[4]) continue
+    if (thin.filter(Boolean).length < 7) continue
+    heads.push({
+      x: cx,
+      y: cy,
+      minX: Math.max(0, hole.minX - pad),
+      maxX: Math.min(width - 1, hole.maxX + pad),
+      minY: Math.max(0, hole.minY - pad),
+      maxY: Math.min(height - 1, hole.maxY + pad),
+    })
+  }
+  return heads
+}
+
+// total area of black components touching the head's box, capped. A hollow head
+// is thin arcs plus maybe a stem; clef glyphs connected to a candidate hole are
+// far bigger.
+function blobAreaAround(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  head: Head,
+  cap: number,
+): number {
+  const visited = new Set<number>()
+  let total = 0
+  for (let y = head.minY; y <= head.maxY; y++) {
+    for (let x = head.minX; x <= head.maxX; x++) {
+      const start = y * width + x
+      if (!bin[start] || visited.has(start)) continue
+      const stack = [start]
+      visited.add(start)
+      while (stack.length > 0) {
+        const p = stack.pop()!
+        total++
+        if (total > cap) return total
+        for (const q of [p - 1, p + 1, p - width, p + width]) {
+          if (q < 0 || q >= width * height || visited.has(q) || !bin[q]) continue
+          stack.push(q)
+          visited.add(q)
+        }
+      }
+    }
+  }
+  return total
 }
 
 export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
   const staff = findStaff(bin, width, height)
+  const s = staff.spacing
+  const hollowHeads = findHollowHeads(bin, width, height, s)
   removeStaffLines(bin, width, height, staff)
-  const filtered = filterHeadPixels(bin, width, height, staff.spacing)
-  const heads = findHeads(filtered, width, height, staff.spacing)
-  const events: NoteEvent[] = heads.map((h) => {
+  const filtered = filterHeadPixels(bin, width, height, s)
+  const hollowCap = 3.5 * s * s
+  // only read heads near the detected staff (multi-staff pages: nearest staff only)
+  const nearStaff = ({ head }: { head: Head }) => {
+    const yCorr = head.y - staff.slope * head.x
+    return yCorr >= staff.lines[0] - 3.5 * s && yCorr <= staff.lines[4] + 3.5 * s
+  }
+  const all = [
+    ...findHeads(filtered, width, height, s).map((head) => ({ head, hollow: false })),
+    ...hollowHeads
+      .filter((head) => {
+        const area = blobAreaAround(bin, width, height, head, hollowCap)
+        if (process.env.OMR_DEBUG)
+          console.log('hollow:', Math.round(head.x), Math.round(head.y), 'blob', area, 'cap', Math.round(hollowCap))
+        return area <= hollowCap
+      })
+      .map((head) => ({ head, hollow: true })),
+  ]
+    .filter(nearStaff)
+    .sort((a, b) => a.head.x - b.head.x)
+
+  const events: NoteEvent[] = all.map(({ head, hollow }) => {
     // interpolate between the two nearest detected lines (skew-corrected space)
-    const y = h.y - staff.slope * h.x
+    const y = head.y - staff.slope * head.x
     const { lines } = staff
     let idx: number
-    if (y <= lines[0]) idx = (y - lines[0]) / staff.spacing
-    else if (y >= lines[4]) idx = 4 + (y - lines[4]) / staff.spacing
+    if (y <= lines[0]) idx = (y - lines[0]) / s
+    else if (y >= lines[4]) idx = 4 + (y - lines[4]) / s
     else {
       let k = 0
       while (y > lines[k + 1]) k++
       idx = k + (y - lines[k]) / (lines[k + 1] - lines[k])
     }
     const steps = Math.round(idx * 2)
-    return { kind: 'note', pitch: staffPitch(steps, clef), duration: 4 }
+
+    const stem = findStem(bin, width, height, s, head)
+    let duration: NoteEvent['duration']
+    if (hollow) duration = stem ? 2 : 1
+    else if (stem) {
+      const beams = countBeams(bin, width, height, s, head, stem)
+      duration = beams >= 2 ? 16 : beams === 1 ? 8 : 4
+    } else duration = 4
+    const dotted = hasDot(bin, width, height, s, head)
+
+    return {
+      kind: 'note',
+      pitch: staffPitch(steps, clef),
+      duration,
+      ...(dotted && { dotted }),
+    }
   })
-  return { events, heads, staffLines: staff.lines, staffSpacing: staff.spacing }
+  return { events, heads: all.map((a) => a.head), staffLines: staff.lines, staffSpacing: s }
 }

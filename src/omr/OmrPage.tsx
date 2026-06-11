@@ -2,7 +2,9 @@ import { useRef, useState } from 'react'
 import type { Clef, NoteEvent } from '../model/types'
 import { recognize, type OmrResult } from './recognize'
 
-const MAX_WIDTH = 1200
+// recognize at native resolution (downscaling blurs flags/beams and breaks
+// duration detection); the canvas is shrunk for display via CSS only
+const MAX_WIDTH = 4000
 
 export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Clef) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -65,8 +67,9 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
     <details className="omr">
       <summary>Photo recognition (experimental)</summary>
       <p className="hint">
-        Works only with cleanly printed, monophonic scores. All durations are read as quarter
-        notes — fix them in the editor after importing.
+        Works only with cleanly printed, monophonic scores. Durations (whole–16th, dots) are
+        estimated from stems, beams, and flags; rests are not detected — review the result in the
+        editor after importing.
       </p>
       <label className="file-button">
         Choose image
