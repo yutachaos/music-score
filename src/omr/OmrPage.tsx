@@ -67,9 +67,8 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
     <details className="omr">
       <summary>Photo recognition (experimental)</summary>
       <p className="hint">
-        Works only with cleanly printed, monophonic scores. Durations (whole–16th, dots) are
-        estimated from stems, beams, and flags; rests are not detected — review the result in the
-        editor after importing.
+        Works only with cleanly printed, monophonic scores. Durations (whole–16th, dots) and rests
+        are estimated from the glyph shapes — review the result in the editor after importing.
       </p>
       <label className="file-button">
         Choose image
@@ -93,7 +92,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
       {error && <p className="omr-error">{error}</p>}
       {result && (
         <p>
-          Detected {result.events.length} notes{' '}
+          Detected {result.events.length} notes and rests{' '}
           <button onClick={() => onImport(result.events, clef)}>Import as new score</button>
         </p>
       )}

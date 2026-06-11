@@ -119,6 +119,24 @@ describe('recognize', () => {
     expect(result.events).toHaveLength(0)
   })
 
+  it('detects eighth and half rests', () => {
+    const img = makeImage(260, 140)
+    drawStaff(img)
+    drawHead(img, 180, TOP + 2 * S)
+    // eighth-rest-like glyph: small ball with a tail, mid-staff
+    drawBand(img, 56, 60, TOP + 1.5 * S, TOP + 1.5 * S + 4)
+    for (let y = TOP + 1.5 * S + 5; y <= TOP + 1.5 * S + 13; y++) {
+      setBlack(img, 59, y)
+      setBlack(img, 60, y)
+    }
+    // half rest: filled rectangle sitting on the middle line
+    drawBand(img, 114, 126, TOP + 2 * S - 4, TOP + 2 * S - 1)
+    const result = recognize(img)
+    expect(
+      result.events.map((e) => `${e.kind === 'rest' ? 'z' : ''}${e.duration}`),
+    ).toEqual(['z8', 'z2', '4'])
+  })
+
   it('classifies hollow heads as half and whole notes', () => {
     const img = makeImage(260, 140)
     drawStaff(img)

@@ -511,6 +511,125 @@ function blobAreaAround(
   return total
 }
 
+// rests: isolated glyphs in the middle band of the staff that belong to no note.
+// Classified by size; rectangle rests by which line they touch.
+function findRests(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  staff: StaffInfo,
+  heads: Head[],
+): { head: Head; duration: NoteEvent['duration'] }[] {
+  const s = staff.spacing
+  const visited = new Uint8Array(width * height)
+  const rests: { head: Head; duration: NoteEvent['duration'] }[] = []
+  const yTop = Math.max(0, Math.round(staff.lines[0] - s))
+  const yBottom = Math.min(height - 1, Math.round(staff.lines[4] + s))
+  for (let yy = yTop; yy <= yBottom; yy++) {
+    for (let xx = 0; xx < width; xx++) {
+      const start = yy * width + xx
+      if (!bin[start] || visited[start]) continue
+      const stack = [start]
+      visited[start] = 1
+      let area = 0
+      let sumX = 0
+      let sumY = 0
+      let minX = width
+      let maxX = 0
+      let minY = height
+      let maxY = 0
+      while (stack.length > 0) {
+        const p = stack.pop()!
+        const x = p % width
+        const y = (p / width) | 0
+        area++
+        sumX += x
+        sumY += y
+        minX = Math.min(minX, x)
+        maxX = Math.max(maxX, x)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+        for (const q of [p - 1, p + 1, p - width, p + width]) {
+          if (q < 0 || q >= width * height || visited[q] || !bin[q]) continue
+          if ((q === p - 1 || q === p + 1) && ((q / width) | 0) !== y) continue
+          visited[q] = 1
+          stack.push(q)
+        }
+      }
+      const w = maxX - minX + 1
+      const h = maxY - minY + 1
+      const cx = sumX / area
+      const cy = sumY / area
+      // skip anything touching a notehead (stems/beams connect to heads)
+      const margin = 0.3 * s
+      const touchesHead = heads.some(
+        (hd) =>
+          minX <= hd.maxX + margin &&
+          maxX >= hd.minX - margin &&
+          minY <= hd.maxY + margin &&
+          maxY >= hd.minY - margin,
+      )
+      if (touchesHead) continue
+      const yCorr = cy - staff.slope * cx
+      const middle = (staff.lines[1] + staff.lines[3]) / 2
+      const head: Head = { x: cx, y: cy, minX, maxX, minY, maxY }
+      // isolated glyph: clef/ornament fragments have more ink nearby
+      const pad = Math.round(0.6 * s)
+      let windowBlack = 0
+      for (let by = Math.max(0, minY - pad); by <= Math.min(height - 1, maxY + pad); by++) {
+        for (let bx = Math.max(0, minX - pad); bx <= Math.min(width - 1, maxX + pad); bx++) {
+          windowBlack += bin[by * width + bx]
+        }
+      }
+      const isolated = windowBlack <= area * 1.35
+      // squiggle rests (quarter/eighth/16th) hang around the middle of the staff
+      if (
+        isolated &&
+        w >= 0.35 * s &&
+        w <= 1.0 * s &&
+        h >= 0.8 * s &&
+        h <= 3.2 * s &&
+        Math.abs(yCorr - middle) <= 1.2 * s &&
+        area >= 0.25 * s * s
+      ) {
+        let duration: NoteEvent['duration'] = 8
+        if (h > 2.2 * s) {
+          // count the "balls" along the glyph: 16th rests have two, quarter rests none
+          let bands = 0
+          let bandRows = 0
+          for (let y = minY; y <= maxY; y++) {
+            let rowWidth = 0
+            for (let x = minX; x <= maxX; x++) rowWidth += bin[y * width + x]
+            if (rowWidth >= 0.42 * s) bandRows++
+            else {
+              if (bandRows >= 0.2 * s) bands++
+              bandRows = 0
+            }
+          }
+          if (bandRows >= 0.2 * s) bands++
+          duration = bands >= 2 ? 16 : 4
+        }
+        rests.push({ head, duration })
+      } else if (
+        isolated &&
+        // rectangle rests: half sits on the middle line, whole hangs from the line above
+        w >= 0.8 * s &&
+        w <= 1.6 * s &&
+        h >= 0.2 * s &&
+        h <= 0.55 * s &&
+        area / (w * h) >= 0.8
+      ) {
+        const topCorr = minY - staff.slope * cx
+        const bottomCorr = maxY - staff.slope * cx
+        const half = Math.abs(bottomCorr - staff.lines[2]) <= 0.3 * s
+        const whole = Math.abs(topCorr - staff.lines[1]) <= 0.3 * s
+        if (half || whole) rests.push({ head, duration: half ? 2 : 1 })
+      }
+    }
+  }
+  return rests
+}
+
 export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
@@ -528,18 +647,13 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const all = [
     ...findHeads(filtered, width, height, s).map((head) => ({ head, hollow: false })),
     ...hollowHeads
-      .filter((head) => {
-        const area = blobAreaAround(bin, width, height, head, hollowCap)
-        if (process.env.OMR_DEBUG)
-          console.log('hollow:', Math.round(head.x), Math.round(head.y), 'blob', area, 'cap', Math.round(hollowCap))
-        return area <= hollowCap
-      })
+      .filter((head) => blobAreaAround(bin, width, height, head, hollowCap) <= hollowCap)
       .map((head) => ({ head, hollow: true })),
   ]
     .filter(nearStaff)
     .sort((a, b) => a.head.x - b.head.x)
 
-  const events: NoteEvent[] = all.map(({ head, hollow }) => {
+  const noteEvents: { x: number; head: Head; event: NoteEvent }[] = all.map(({ head, hollow }) => {
     // interpolate between the two nearest detected lines (skew-corrected space)
     const y = head.y - staff.slope * head.x
     const { lines } = staff
@@ -563,11 +677,34 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
     const dotted = hasDot(bin, width, height, s, head)
 
     return {
-      kind: 'note',
-      pitch: staffPitch(steps, clef),
-      duration,
-      ...(dotted && { dotted }),
+      x: head.x,
+      head,
+      event: {
+        kind: 'note' as const,
+        pitch: staffPitch(steps, clef),
+        duration,
+        ...(dotted && { dotted }),
+      },
     }
   })
-  return { events, heads: all.map((a) => a.head), staffLines: staff.lines, staffSpacing: s }
+
+  const restEvents = findRests(bin, width, height, staff, all.map((a) => a.head)).map(
+    ({ head, duration }) => ({
+      x: head.x,
+      head,
+      event: {
+        kind: 'rest' as const,
+        duration,
+        ...(hasDot(bin, width, height, s, head) && { dotted: true }),
+      },
+    }),
+  )
+
+  const merged = [...noteEvents, ...restEvents].sort((a, b) => a.x - b.x)
+  return {
+    events: merged.map((m) => m.event),
+    heads: merged.map((m) => m.head),
+    staffLines: staff.lines,
+    staffSpacing: s,
+  }
 }
