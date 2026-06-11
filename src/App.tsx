@@ -25,6 +25,7 @@ export default function App() {
   const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
   const [transpose, setTranspose] = useState(0)
   const [program, setProgram] = useState(0)
+  const [metronome, setMetronome] = useState<MetronomeMode>('off')
   const playback = usePlayback()
   const visualRef = useRef<TuneObject | null>(null)
 
@@ -35,7 +36,7 @@ export default function App() {
   })
 
   const stopPlayback = playback.stop
-  useEffect(() => stopPlayback, [abc, transpose, program, stopPlayback])
+  useEffect(() => stopPlayback, [abc, transpose, program, metronome, stopPlayback])
 
   // current edits merged into the list; persisted by the effect below
   const scores = storedScores.map((s) => (s.id === score.id ? score : s))
@@ -186,7 +187,7 @@ export default function App() {
           className="primary"
           onClick={() => {
             if (playback.playing) playback.stop()
-            else if (visualRef.current) playback.play(visualRef.current, program)
+            else if (visualRef.current) playback.play(visualRef.current, program, metronome)
           }}
         >
           {playback.playing ? '■ Stop' : '▶ Play'}
@@ -222,10 +223,7 @@ export default function App() {
         </label>
         <label>
           Metronome
-          <select
-            value={playback.metronome}
-            onChange={(e) => playback.setMetronome(e.target.value as MetronomeMode)}
-          >
+          <select value={metronome} onChange={(e) => setMetronome(e.target.value as MetronomeMode)}>
             <option value="off">Off</option>
             <option value="downbeat">On-beat</option>
             <option value="offbeat">Off-beat</option>
