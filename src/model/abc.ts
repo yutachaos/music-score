@@ -46,12 +46,25 @@ function eventUnits(ev: NoteEvent): number {
   return (32 / ev.duration) * (ev.dotted ? 1.5 : 1)
 }
 
-function eventToAbc(ev: NoteEvent, opts: AbcOptions): string {
-  const units = eventUnits(ev)
+// renderable lengths in 32nd units (plain and dotted values), largest first
+const STD_UNITS = [48, 32, 24, 16, 12, 8, 6, 4, 3, 2, 1]
+
+function decompose(units: number): number[] {
+  const out: number[] = []
+  for (const u of STD_UNITS) {
+    while (units >= u) {
+      out.push(u)
+      units -= u
+    }
+  }
+  return out
+}
+
+function pieceToAbc(ev: NoteEvent, units: number, opts: AbcOptions, first: boolean): string {
   if (ev.kind === 'rest') return `z${units}`
   const style = opts.noteNames ?? 'off'
   const annotation =
-    style === 'off'
+    !first || style === 'off'
       ? ''
       : `"^${noteName(transposePitch(ev.pitch!, opts.nameTranspose ?? 0), style)}"`
   return `${annotation}${abcPitch(ev.pitch!)}${units}`
@@ -69,20 +82,35 @@ export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcRe
   const perMeasure = measureUnits(score.timeSig)
   const parts: string[] = []
   const seps: string[] = [] // separator after each part
-  const eventPartIndex: number[] = []
+  const eventParts: { first: number; last: number }[] = []
   let filled = 0
   let measures = 0
+  const pushBar = () => {
+    measures++
+    parts.push('|')
+    seps.push(measures % MEASURES_PER_LINE === 0 ? '\n' : ' ')
+    filled = 0
+  }
   for (const ev of score.events) {
-    eventPartIndex.push(parts.length)
-    parts.push(eventToAbc(ev, opts))
-    seps.push(' ')
-    filled += eventUnits(ev)
-    if (filled >= perMeasure) {
-      measures++
-      parts.push('|')
-      seps.push(measures % MEASURES_PER_LINE === 0 ? '\n' : ' ')
-      filled = 0
+    const first = parts.length
+    let units = eventUnits(ev)
+    let isFirstPiece = true
+    // split events across barlines, tying note pieces together
+    while (units > 0) {
+      const take = Math.min(units, perMeasure - filled)
+      const pieces = decompose(take)
+      for (let j = 0; j < pieces.length; j++) {
+        const lastPiece = units - take === 0 && j === pieces.length - 1
+        const tied = ev.kind === 'note' && (!lastPiece || ev.tie)
+        parts.push(pieceToAbc(ev, pieces[j], opts, isFirstPiece) + (tied ? '-' : ''))
+        seps.push(' ')
+        isFirstPiece = false
+      }
+      units -= take
+      filled += take
+      if (filled >= perMeasure) pushBar()
     }
+    eventParts.push({ first, last: parts.length - (parts.at(-1) === '|' ? 2 : 1) })
   }
   if (parts.length === 0) {
     parts.push('x8')
@@ -110,9 +138,9 @@ export function scoreToAbcWithRanges(score: Score, opts: AbcOptions = {}): AbcRe
     body += parts[i]
     if (i < parts.length - 1) body += seps[i]
   }
-  const eventRanges = eventPartIndex.map((pi) => ({
-    start: partOffsets[pi],
-    end: partOffsets[pi] + parts[pi].length,
+  const eventRanges = eventParts.map(({ first, last }) => ({
+    start: partOffsets[first],
+    end: partOffsets[last] + parts[last].length,
   }))
   return { abc: `${header}\n${body}`, eventRanges }
 }

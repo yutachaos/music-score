@@ -137,6 +137,22 @@ describe('recognize', () => {
     ).toEqual(['z8', 'z2', '4'])
   })
 
+  it('detects ties between same-pitch notes', () => {
+    const img = makeImage(260, 140)
+    drawStaff(img)
+    drawHead(img, 80, TOP + 2.5 * S)
+    drawHead(img, 160, TOP + 2.5 * S)
+    // arc below the heads, between staff lines
+    for (let x = 88; x <= 152; x++) {
+      const t = (x - 88) / 64
+      const y = Math.round(TOP + 2.5 * S + 7 + 4 * Math.sin(Math.PI * t))
+      setBlack(img, x, y)
+      setBlack(img, x, y + 1)
+    }
+    const result = recognize(img)
+    expect(result.events.map((e) => e.tie ?? false)).toEqual([true, false])
+  })
+
   it('classifies hollow heads as half and whole notes', () => {
     const img = makeImage(260, 140)
     drawStaff(img)

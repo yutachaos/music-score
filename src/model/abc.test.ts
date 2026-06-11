@@ -118,4 +118,30 @@ describe('scoreToAbc', () => {
     expect(scoreToAbc(score({ clef: 'bass' }))).toContain('K:C clef=bass')
     expect(scoreToAbc(score({}))).toContain('K:C\n')
   })
+
+  it('renders explicit ties', () => {
+    const abc = scoreToAbc(
+      score({
+        events: [
+          { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 4, tie: true },
+          { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 4 },
+        ],
+      }),
+    )
+    expect(body(abc)).toBe('C8- C8 |]')
+  })
+
+  it('splits notes across barlines with ties', () => {
+    const abc = scoreToAbc(
+      score({
+        timeSig: '2/4',
+        events: [
+          { kind: 'note', pitch: { step: 'C', octave: 4 }, duration: 4 },
+          { kind: 'note', pitch: { step: 'D', octave: 4 }, duration: 2 },
+          { kind: 'rest', duration: 4 },
+        ],
+      }),
+    )
+    expect(body(abc)).toBe('C8 D8- | D8 z8 |]')
+  })
 })

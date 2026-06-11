@@ -101,6 +101,8 @@ export default function App() {
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
         editor.deleteSelected()
+      } else if (e.key === 't') {
+        editor.toggleTie()
       } else if (e.key === 'Escape') {
         editor.setSelected(null)
       }
@@ -175,6 +177,8 @@ export default function App() {
         onInsertRest={() =>
           editor.insertEvent({ kind: 'rest', duration, ...(dotted && { dotted }) })
         }
+        tieActive={editor.selected !== null && !!score.events[editor.selected]?.tie}
+        onToggleTie={editor.toggleTie}
       />
       <div className="toolbar">
         <button
@@ -217,7 +221,7 @@ export default function App() {
       </div>
       <p className="hint">
         Click the staff to insert a note (after the selected one) / ↑↓: pitch / ←→: move selection /
-        Delete: remove / Ctrl+Z: undo / Esc: deselect
+        t: tie / Delete: remove / Ctrl+Z: undo / Esc: deselect
       </p>
       <div className="score-card">
         <ScoreView

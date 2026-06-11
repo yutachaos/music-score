@@ -60,6 +60,8 @@ export interface PaletteProps {
   timeSig: string
   onTimeSig: (t: string) => void
   onInsertRest: () => void
+  tieActive: boolean
+  onToggleTie: () => void
 }
 
 export function Palette(p: PaletteProps) {
@@ -97,6 +99,13 @@ export function Palette(p: PaletteProps) {
         ))}
       </span>
       <button onClick={p.onInsertRest}>Insert rest</button>
+      <button
+        className={p.tieActive ? 'active' : ''}
+        onClick={p.onToggleTie}
+        title="Tie the selected note to the next note"
+      >
+        Tie
+      </button>
       <label>
         Clef
         <select value={p.clef} onChange={(e) => p.onClef(e.target.value as Clef)}>

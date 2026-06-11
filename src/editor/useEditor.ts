@@ -35,6 +35,21 @@ export function useEditor(initial: Score) {
     commit(score.events.map((e, i) => (i === selected ? { ...e, pitch } : e)))
   }
 
+  function toggleTie() {
+    if (selected === null) return
+    const ev = score.events[selected]
+    if (ev.kind !== 'note') return
+    commit(
+      score.events.map((e, i) => {
+        if (i !== selected) return e
+        const next = { ...e }
+        if (next.tie) delete next.tie
+        else next.tie = true
+        return next
+      }),
+    )
+  }
+
   function moveSelection(delta: number) {
     if (score.events.length === 0) return
     setSelected((s) => {
@@ -67,6 +82,7 @@ export function useEditor(initial: Score) {
     insertEvent,
     deleteSelected,
     movePitch,
+    toggleTie,
     moveSelection,
     undo,
     setMeta,

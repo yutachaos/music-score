@@ -134,7 +134,8 @@ function findStaff(bin: Uint8Array, width: number, height: number): StaffInfo {
 
 function removeStaffLines(bin: Uint8Array, width: number, height: number, staff: StaffInfo) {
   const maxRun = Math.ceil(staff.thickness * 2)
-  const search = Math.ceil(staff.thickness) + 1
+  // pages warp: lines drift a few pixels from the linear skew model
+  const search = Math.ceil(staff.thickness) + 4
   for (const line of staff.lines) {
     for (let x = 0; x < width; x++) {
       const guess = Math.round(line + staff.slope * x)
@@ -282,35 +283,97 @@ function countBeams(
 ): number {
   const dir = stem.tip < head.y ? 1 : -1 // scan from tip toward the head
   const scanLen = Math.min(2.5 * s, Math.abs(head.y - stem.tip) - 0.8 * s)
-  let beams = 0
-  for (const dx of [-0.7 * s, 0.7 * s]) {
-    const x = Math.round(stem.x + dx)
-    if (x < 0 || x >= width) continue
+  const minBand = Math.max(2, 0.1 * s)
+
+  function scanColumn(x: number, mode: 'beam' | 'flag'): number {
+    if (x < 0 || x >= width) return 0
     let count = 0
     let runLen = 0
+    // flags are chunky; staff-line leftovers are only a couple of pixels tall
+    const minRun = mode === 'flag' ? 0.3 * s : minBand
+    const closeBand = (endY: number) => {
+      if (runLen < minRun || runLen > 1.3 * s) {
+        runLen = 0
+        return
+      }
+      const ym = endY - dir * Math.round(runLen / 2)
+      let l = x
+      while (l > 0 && bin[ym * width + l - 1]) l--
+      let r = x
+      while (r < width - 1 && bin[ym * width + r + 1]) r++
+      const hr = r - l + 1
+      if (mode === 'beam') {
+        count++
+      } else if (hr >= 0.3 * s && hr < 1.5 * s) {
+        // flag-sized: excludes staff-line leftovers (long) and specks (short)
+        count++
+      }
+      runLen = 0
+    }
     for (let i = 0; i <= scanLen; i++) {
       const y = stem.tip + dir * i
       if (y < 0 || y >= height) break
       if (bin[y * width + x]) runLen++
-      else {
-        // flags cross near-vertically, so allow taller runs than a beam
-        if (runLen >= 0.15 * s && runLen <= 1.3 * s) count++
-        runLen = 0
-      }
+      else closeBand(y)
     }
-    if (runLen >= 0.15 * s && runLen <= 1.3 * s) count++
-    beams = Math.max(beams, count)
+    closeBand(stem.tip + dir * Math.round(scanLen + 1))
+    return count
+  }
+
+  let beams = 0
+  for (const dx of [-0.7 * s, 0.7 * s]) {
+    beams = Math.max(beams, scanColumn(Math.round(stem.x + dx), 'beam'))
+  }
+  // flags only extend to the right of the stem and hug it closely
+  for (const dx of [0.4 * s, 0.55 * s]) {
+    beams = Math.max(beams, scanColumn(Math.round(stem.x + dx), 'flag'))
   }
   return beams
 }
 
 // augmentation dot: a small isolated blob right of the head
 function hasDot(bin: Uint8Array, width: number, height: number, s: number, head: Head): boolean {
+  return dotInWindow(
+    bin,
+    width,
+    height,
+    s,
+    head.maxX + 0.2 * s,
+    head.maxX + 1.1 * s,
+    head.y - 0.8 * s,
+    head.y + 0.8 * s,
+  )
+}
+
+// rest dots sit beside the upper ball of the glyph, often above the tail sweep
+function restDot(bin: Uint8Array, width: number, height: number, s: number, head: Head): boolean {
+  return dotInWindow(
+    bin,
+    width,
+    height,
+    s,
+    head.x + 0.3 * s,
+    head.x + 1.4 * s,
+    head.minY,
+    head.minY + 0.9 * s,
+  )
+}
+
+function dotInWindow(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  s: number,
+  wx0: number,
+  wx1: number,
+  wy0: number,
+  wy1: number,
+): boolean {
   let dotted = false
-  const dx0 = Math.min(width - 1, head.maxX + Math.round(0.2 * s))
-  const dx1 = Math.min(width - 1, head.maxX + Math.round(1.1 * s))
-  const dy0 = Math.max(0, Math.round(head.y - 0.8 * s))
-  const dy1 = Math.min(height - 1, Math.round(head.y + 0.8 * s))
+  const dx0 = Math.min(width - 1, Math.round(wx0))
+  const dx1 = Math.min(width - 1, Math.round(wx1))
+  const dy0 = Math.max(0, Math.round(wy0))
+  const dy1 = Math.min(height - 1, Math.round(wy1))
   const seen = new Set<number>()
   for (let y = dy0; y <= dy1 && !dotted; y++) {
     for (let x = dx0; x <= dx1 && !dotted; x++) {
@@ -586,29 +649,27 @@ function findRests(
       if (
         isolated &&
         w >= 0.35 * s &&
-        w <= 1.0 * s &&
+        w <= 1.25 * s &&
         h >= 0.8 * s &&
         h <= 3.2 * s &&
         Math.abs(yCorr - middle) <= 1.2 * s &&
         area >= 0.25 * s * s
       ) {
-        let duration: NoteEvent['duration'] = 8
-        if (h > 2.2 * s) {
-          // count the "balls" along the glyph: 16th rests have two, quarter rests none
-          let bands = 0
-          let bandRows = 0
-          for (let y = minY; y <= maxY; y++) {
-            let rowWidth = 0
-            for (let x = minX; x <= maxX; x++) rowWidth += bin[y * width + x]
-            if (rowWidth >= 0.42 * s) bandRows++
-            else {
-              if (bandRows >= 0.2 * s) bands++
-              bandRows = 0
-            }
+        // count the "balls" along the glyph: eighth rests have one, 16th two,
+        // quarter rests are tall zigzags
+        let balls = 0
+        let bandRows = 0
+        for (let y = minY; y <= maxY; y++) {
+          let rowWidth = 0
+          for (let x = minX; x <= maxX; x++) rowWidth += bin[y * width + x]
+          if (rowWidth >= 0.42 * s) bandRows++
+          else {
+            if (bandRows >= 0.2 * s) balls++
+            bandRows = 0
           }
-          if (bandRows >= 0.2 * s) bands++
-          duration = bands >= 2 ? 16 : 4
         }
+        if (bandRows >= 0.2 * s) balls++
+        const duration: NoteEvent['duration'] = balls >= 2 ? 16 : h > 2.4 * s ? 4 : 8
         rests.push({ head, duration })
       } else if (
         isolated &&
@@ -636,6 +697,7 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
   const staff = findStaff(bin, width, height)
   const s = staff.spacing
   const hollowHeads = findHollowHeads(bin, width, height, s)
+  const binOrig = bin.slice()
   removeStaffLines(bin, width, height, staff)
   const filtered = filterHeadPixels(bin, width, height, s)
   const hollowCap = 3.5 * s * s
@@ -695,16 +757,77 @@ export function recognize(image: BitmapLike, clef: Clef = 'treble'): OmrResult {
       event: {
         kind: 'rest' as const,
         duration,
-        ...(hasDot(bin, width, height, s, head) && { dotted: true }),
+        ...(restDot(bin, width, height, s, head) && { dotted: true }),
       },
     }),
   )
 
   const merged = [...noteEvents, ...restEvents].sort((a, b) => a.x - b.x)
+
+  // ties: a thin arc between two consecutive same-pitch notes
+  for (let i = 0; i < merged.length - 1; i++) {
+    const a = merged[i]
+    const b = merged[i + 1]
+    if (a.event.kind !== 'note' || b.event.kind !== 'note') continue
+    const pa = a.event.pitch!
+    const pb = b.event.pitch!
+    if (pa.step !== pb.step || pa.octave !== pb.octave || pa.accidental !== pb.accidental) continue
+    if (arcBetween(binOrig, width, height, staff, a.head, b.head)) a.event.tie = true
+  }
+
   return {
     events: merged.map((m) => m.event),
     heads: merged.map((m) => m.head),
     staffLines: staff.lines,
     staffSpacing: s,
   }
+}
+
+// thin curved stroke spanning most columns between two heads, just above or
+// below them. Runs on the pre-removal image; hits on staff-line rows are
+// ignored instead.
+function arcBetween(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  staff: StaffInfo,
+  a: Head,
+  b: Head,
+): boolean {
+  const s = staff.spacing
+  const x0 = Math.max(0, Math.round(a.x + 0.5 * s))
+  const x1 = Math.min(width - 1, Math.round(b.x - 0.5 * s))
+  if (x1 - x0 < 0.8 * s) return false
+  const bands: [number, number][] = [
+    [Math.max(a.maxY, b.maxY) + 1, Math.max(a.maxY, b.maxY) + Math.round(1.8 * s)],
+    [Math.min(a.minY, b.minY) - Math.round(1.8 * s), Math.min(a.minY, b.minY) - 1],
+  ]
+  for (const [bandTop, bandBottom] of bands) {
+    let hits = 0
+    for (let x = x0; x <= x1; x++) {
+      for (let y = Math.max(0, bandTop); y <= Math.min(height - 1, bandBottom); y++) {
+        if (!bin[y * width + x]) continue
+        // full vertical run, even past the band edges, so clipped beams and
+        // stems are not mistaken for a thin arc stroke
+        let top = y
+        while (top > 0 && bin[(top - 1) * width + x]) top--
+        let bottom = y
+        while (bottom < height - 1 && bin[(bottom + 1) * width + x]) bottom++
+        // staff lines run horizontally far; an arc stroke's row is short
+        const ym = (top + bottom) >> 1
+        let l = x
+        while (l > 0 && bin[ym * width + l - 1]) l--
+        let r = x
+        while (r < width - 1 && bin[ym * width + r + 1]) r++
+        if (r - l + 1 >= 1.5 * s && bottom - top + 1 <= staff.thickness + 2) {
+          y = bottom // skip the staff line; look further down the band
+          continue
+        }
+        if (top >= bandTop && bottom - top + 1 <= 0.35 * s) hits++
+        break
+      }
+    }
+    if (hits / (x1 - x0 + 1) >= 0.55) return true
+  }
+  return false
 }

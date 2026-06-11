@@ -4,7 +4,7 @@ import { PNG } from 'pngjs'
 import { recognize } from './recognize'
 
 describe('sample.png (bass-clef rhythm staff)', () => {
-  it('detects the staff, 16 noteheads as C3, and 4 eighth rests', () => {
+  it('recognizes notes, rests, dots, and the tie', () => {
     const png = PNG.sync.read(readFileSync('sample.png'))
     const result = recognize(
       { data: new Uint8ClampedArray(png.data), width: png.width, height: png.height },
@@ -21,10 +21,12 @@ describe('sample.png (bass-clef rhythm staff)', () => {
       expect(e.pitch).toEqual({ step: 'C', octave: 3 })
     }
     expect(
-      result.events.map((e) => `${e.kind === 'rest' ? 'z' : ''}${e.duration}${e.dotted ? '.' : ''}`),
+      result.events.map(
+        (e) => `${e.kind === 'rest' ? 'z' : ''}${e.duration}${e.dotted ? '.' : ''}${e.tie ? '-' : ''}`,
+      ),
     ).toEqual([
-      '16', '16', '16', '16', 'z8', '4', '8', '8', 'z8', '16',
-      '16', '16', '16', 'z8', '4.', '4', 'z8', '16', '8', '16',
+      '16', '16', '16', '16', 'z8.', '16-', '8', '8', 'z8', '16', '16',
+      '16', '16', 'z8', 'z16', '8.', '8', 'z8', '16', '8', '16',
     ])
   })
 })

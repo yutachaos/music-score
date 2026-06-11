@@ -15,6 +15,8 @@ export interface NoteEvent {
   pitch?: Pitch
   duration: Duration
   dotted?: boolean
+  // tied to the next note
+  tie?: boolean
 }
 
 export type Clef = 'treble' | 'bass'
