@@ -9,18 +9,16 @@ const MAX_WIDTH = 4000
 export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Clef) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<ImageData | null>(null)
-  const [clef, setClef] = useState<Clef>('treble')
   const [result, setResult] = useState<OmrResult | null>(null)
   const [error, setError] = useState('')
 
-  function run(image: ImageData, currentClef?: Clef) {
+  function run(image: ImageData) {
     const canvas = canvasRef.current!
     const ctx = canvas.getContext('2d')!
     ctx.putImageData(image, 0, 0)
     try {
-      const r = recognize(image, currentClef)
+      const r = recognize(image)
       setResult(r)
-      setClef(r.clef)
       setError('')
       ctx.strokeStyle = 'rgba(0, 120, 255, 0.7)'
       ctx.lineWidth = 1
@@ -59,11 +57,6 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
     img.src = URL.createObjectURL(file)
   }
 
-  function handleClef(next: Clef) {
-    setClef(next)
-    if (imageRef.current) run(imageRef.current, next)
-  }
-
   return (
     <details className="omr">
       <summary>Photo recognition (experimental)</summary>
@@ -82,13 +75,6 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
             e.target.value = ''
           }}
         />
-      </label>{' '}
-      <label>
-        Clef (auto-detected){' '}
-        <select value={clef} onChange={(e) => handleClef(e.target.value as Clef)}>
-          <option value="treble">Treble</option>
-          <option value="bass">Bass</option>
-        </select>
       </label>
       {error && <p className="omr-error">{error}</p>}
       {result && (
