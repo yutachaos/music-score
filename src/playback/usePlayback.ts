@@ -45,10 +45,10 @@ export function usePlayback() {
     setPlaying(false)
   }, [])
 
-  async function play(visualObj: TuneObject) {
+  async function play(visualObj: TuneObject, program = 0) {
     stop()
     const s = new abcjs.synth.CreateSynth()
-    await s.init({ visualObj })
+    await s.init({ visualObj, options: { program } })
     await s.prime()
     const beatsPerBar = visualObj.getBeatsPerMeasure()
     const t = new abcjs.TimingCallbacks(visualObj, {

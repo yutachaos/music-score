@@ -24,6 +24,7 @@ export default function App() {
   const [accidental, setAccidental] = useState<Accidental | ''>('')
   const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
   const [transpose, setTranspose] = useState(0)
+  const [program, setProgram] = useState(0)
   const playback = usePlayback()
   const visualRef = useRef<TuneObject | null>(null)
 
@@ -34,7 +35,7 @@ export default function App() {
   })
 
   const stopPlayback = playback.stop
-  useEffect(() => stopPlayback, [abc, transpose, stopPlayback])
+  useEffect(() => stopPlayback, [abc, transpose, program, stopPlayback])
 
   // current edits merged into the list; persisted by the effect below
   const scores = storedScores.map((s) => (s.id === score.id ? score : s))
@@ -185,7 +186,7 @@ export default function App() {
           className="primary"
           onClick={() => {
             if (playback.playing) playback.stop()
-            else if (visualRef.current) playback.play(visualRef.current)
+            else if (visualRef.current) playback.play(visualRef.current, program)
           }}
         >
           {playback.playing ? '■ Stop' : '▶ Play'}
@@ -209,6 +210,15 @@ export default function App() {
             value={transpose}
             onChange={(e) => setTranspose(Number(e.target.value))}
           />
+        </label>
+        <label>
+          Instrument
+          <select value={program} onChange={(e) => setProgram(Number(e.target.value))}>
+            <option value={0}>Piano</option>
+            <option value={24}>Guitar</option>
+            <option value={32}>Bass</option>
+            <option value={19}>Organ</option>
+          </select>
         </label>
         <label>
           Metronome
