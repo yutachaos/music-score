@@ -57,13 +57,16 @@ export function usePlayback() {
     const s = new abcjs.synth.CreateSynth()
     await s.init({
       visualObj,
-      onEnded: () => {
-        if (synth.current !== s || !loop) return
-        s.stop()
-        timing.current?.reset()
-        startAll()
+      options: {
+        program,
+        // abcjs reads onEnded from the nested options, not the init root
+        onEnded: () => {
+          if (synth.current !== s || !loop) return
+          s.stop()
+          timing.current?.reset()
+          startAll()
+        },
       },
-      options: { program },
     })
     const { duration } = await s.prime()
     const ctx = abcjs.synth.activeAudioContext()
