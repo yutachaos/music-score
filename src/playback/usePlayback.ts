@@ -10,15 +10,18 @@ export interface PlayOptions {
   loop?: boolean
 }
 
-// abcjs drum track (%%MIDI drum): clicks are synthesized into the same audio
-// stream as the notes, so they stay sample-accurate. 76/77 are wood blocks.
-function drumPattern(mode: MetronomeMode, beats: number): string {
-  if (mode === 'offbeat') {
-    return `${'zd'.repeat(beats)} ${Array<number>(beats).fill(77).join(' ')} ${Array<number>(beats).fill(70).join(' ')}`
-  }
-  const pitches = [76, ...Array<number>(beats - 1).fill(77)]
-  const velocities = [110, ...Array<number>(beats - 1).fill(70)]
-  return `${'d'.repeat(beats)} ${pitches.join(' ')} ${velocities.join(' ')}`
+// oscillator beep scheduled on the synth's own AudioContext, so the clicks
+// share the audio clock with the notes and cannot drift
+function clickAt(ctx: AudioContext, out: GainNode, time: number, accent: boolean) {
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.frequency.value = accent ? 1600 : 1100
+  gain.gain.setValueAtTime(0.4, time)
+  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05)
+  osc.connect(gain)
+  gain.connect(out)
+  osc.start(time)
+  osc.stop(time + 0.06)
 }
 
 export function usePlayback() {
@@ -26,6 +29,7 @@ export function usePlayback() {
   const synth = useRef<InstanceType<typeof abcjs.synth.CreateSynth> | null>(null)
   const timing = useRef<abcjs.TimingCallbacks | null>(null)
   const timer = useRef<number | null>(null)
+  const clickBus = useRef<GainNode | null>(null)
   const highlighted = useRef<Element[]>([])
 
   function clearHighlight() {
@@ -40,6 +44,8 @@ export function usePlayback() {
     timing.current = null
     synth.current?.stop()
     synth.current = null
+    clickBus.current?.disconnect()
+    clickBus.current = null
     for (const el of highlighted.current) el.classList.remove('playing')
     highlighted.current = []
     setPlaying(false)
@@ -49,17 +55,6 @@ export function usePlayback() {
     stop()
     const { program = 0, metronome = 'off', countIn = false, loop = false } = opts
     const s = new abcjs.synth.CreateSynth()
-    const introMs = countIn ? visualObj.millisecondsPerMeasure() : 0
-    const startAll = () => {
-      // the count-in is a drum-only intro bar baked into the audio buffer;
-      // delay the highlight cursor until the notes actually start
-      if (introMs > 0) {
-        timer.current = window.setTimeout(() => timing.current?.start(), introMs)
-      } else {
-        timing.current?.start()
-      }
-      s.start()
-    }
     await s.init({
       visualObj,
       onEnded: () => {
@@ -68,17 +63,39 @@ export function usePlayback() {
         timing.current?.reset()
         startAll()
       },
-      options: {
-        program,
-        ...((metronome !== 'off' || countIn) && {
-          drum: drumPattern(metronome, visualObj.getBeatsPerMeasure()),
-          drumBars: 1,
-          ...(countIn && { drumIntro: 1 }),
-          ...(countIn && metronome === 'off' && { drumOff: true }),
-        }),
-      },
+      options: { program },
     })
-    await s.prime()
+    const { duration } = await s.prime()
+    const ctx = abcjs.synth.activeAudioContext()
+    const beats = visualObj.getBeatsPerMeasure()
+    const beatSec = visualObj.millisecondsPerMeasure() / beats / 1000
+
+    const startAll = () => {
+      const bus = ctx.createGain()
+      bus.connect(ctx.destination)
+      clickBus.current?.disconnect()
+      clickBus.current = bus
+      if (countIn) {
+        const t0 = ctx.currentTime
+        for (let k = 0; k < beats; k++) clickAt(ctx, bus, t0 + k * beatSec, k === 0)
+      }
+      const begin = () => {
+        if (synth.current !== s) return
+        if (metronome !== 'off') {
+          const anchor = ctx.currentTime
+          const offset = metronome === 'offbeat' ? 0.5 : 0
+          for (let k = 0; (k + offset) * beatSec < duration; k++) {
+            const accent = metronome === 'downbeat' && k % beats === 0
+            clickAt(ctx, bus, anchor + (k + offset) * beatSec, accent)
+          }
+        }
+        timing.current?.start()
+        s.start()
+      }
+      if (countIn) timer.current = window.setTimeout(begin, beats * beatSec * 1000)
+      else begin()
+    }
+
     const t = new abcjs.TimingCallbacks(visualObj, {
       eventCallback: (ev) => {
         clearHighlight()
