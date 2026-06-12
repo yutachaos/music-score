@@ -26,6 +26,8 @@ export default function App() {
   const [transpose, setTranspose] = useState(0)
   const [program, setProgram] = useState(0)
   const [metronome, setMetronome] = useState<MetronomeMode>('off')
+  const [countIn, setCountIn] = useState(true)
+  const [loop, setLoop] = useState(false)
   const playback = usePlayback()
   const visualRef = useRef<TuneObject | null>(null)
 
@@ -36,7 +38,7 @@ export default function App() {
   })
 
   const stopPlayback = playback.stop
-  useEffect(() => stopPlayback, [abc, transpose, program, metronome, stopPlayback])
+  useEffect(() => stopPlayback, [abc, transpose, program, metronome, countIn, loop, stopPlayback])
 
   // current edits merged into the list; persisted by the effect below
   const scores = storedScores.map((s) => (s.id === score.id ? score : s))
@@ -187,7 +189,8 @@ export default function App() {
           className="primary"
           onClick={() => {
             if (playback.playing) playback.stop()
-            else if (visualRef.current) playback.play(visualRef.current, program, metronome)
+            else if (visualRef.current)
+              playback.play(visualRef.current, { program, metronome, countIn, loop })
           }}
         >
           {playback.playing ? '■ Stop' : '▶ Play'}
@@ -228,6 +231,14 @@ export default function App() {
             <option value="downbeat">On-beat</option>
             <option value="offbeat">Off-beat</option>
           </select>
+        </label>
+        <label>
+          <input type="checkbox" checked={countIn} onChange={(e) => setCountIn(e.target.checked)} />
+          Count-in
+        </label>
+        <label>
+          <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} />
+          Repeat
         </label>
         <label>
           Note names
