@@ -1,4 +1,4 @@
-import type { Score } from './types'
+import type { NoteEvent, Score } from './types'
 
 const KEY = 'music-score.scores'
 
@@ -16,6 +16,16 @@ export function saveScores(scores: Score[]) {
   localStorage.setItem(KEY, JSON.stringify({ scores }))
 }
 
+// four whole rests so the editor shows 4 empty measures as input guidance.
+// Marked as placeholders so the first user input replaces them (rather than
+// appending after).
+const PLACEHOLDER_MEASURES = 4
+const guideEvents: NoteEvent[] = Array.from({ length: PLACEHOLDER_MEASURES }, () => ({
+  kind: 'rest' as const,
+  duration: 1 as const,
+  placeholder: true,
+}))
+
 export function newScore(): Score {
   return {
     id: crypto.randomUUID(),
@@ -24,7 +34,7 @@ export function newScore(): Score {
     keySig: 'C',
     timeSig: '4/4',
     tempo: 100,
-    events: [],
+    events: guideEvents.map((e) => ({ ...e })),
   }
 }
 

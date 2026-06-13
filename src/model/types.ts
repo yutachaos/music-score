@@ -17,6 +17,8 @@ export interface NoteEvent {
   dotted?: boolean
   // tied to the next note
   tie?: boolean
+  // empty-measure rest shown as input guidance; the first user edit replaces it
+  placeholder?: boolean
 }
 
 export type Clef = 'treble' | 'bass'

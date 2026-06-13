@@ -13,6 +13,17 @@ export function useEditor(initial: Score) {
   }
 
   function insertEvent(ev: NoteEvent) {
+    // when no event is selected and the score begins with placeholder rests
+    // (newScore guidance), replace the first one instead of appending after
+    // the whole stack. Once the placeholder is consumed it's gone for good.
+    if (selected === null) {
+      const pi = score.events.findIndex((e) => e.placeholder)
+      if (pi >= 0) {
+        commit([...score.events.slice(0, pi), ev, ...score.events.slice(pi + 1)])
+        setSelected(pi)
+        return
+      }
+    }
     const at = selected === null ? score.events.length : selected + 1
     commit([...score.events.slice(0, at), ev, ...score.events.slice(at)])
     setSelected(at)
