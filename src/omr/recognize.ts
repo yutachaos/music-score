@@ -70,7 +70,7 @@ function projection(bin: Uint8Array, width: number, height: number, slope: numbe
   return proj
 }
 
-function findStaff(bin: Uint8Array, width: number, height: number): StaffInfo {
+function findStaves(bin: Uint8Array, width: number, height: number): StaffInfo[] {
   // estimate skew: the slope that makes the projection sharpest
   let slope = 0
   let proj = projection(bin, width, height, 0)
@@ -86,51 +86,81 @@ function findStaff(bin: Uint8Array, width: number, height: number): StaffInfo {
     }
   }
 
-  // comb search: 5 evenly spaced rows maximizing summed projection
+  // line candidates: maximal runs of strong rows, reduced to their centroid
   const max = Math.max(...proj)
-  const rowAt = (y: number) => {
-    const r = Math.round(y)
-    return Math.max(proj[r - 1] ?? 0, proj[r] ?? 0, proj[r + 1] ?? 0)
-  }
-  let best = { score: -1, y0: 0, spacing: 0 }
-  for (let spacing = 5; spacing <= height / 5; spacing += 0.25) {
-    for (let y0 = 0; y0 + 4 * spacing < height; y0++) {
-      if (proj[y0] < max * 0.3) continue
-      let score = 0
-      for (let k = 0; k < 5; k++) score += rowAt(y0 + k * spacing)
-      if (score > best.score) best = { score, y0, spacing }
+  const thresh = Math.max(0.4 * max, 0.25 * width)
+  const centers: number[] = []
+  const runLengths: number[] = []
+  const peaks: number[] = []
+  let runStart = -1
+  for (let y = 0; y <= height; y++) {
+    const on = y < height && proj[y] >= thresh
+    if (on && runStart < 0) runStart = y
+    else if (!on && runStart >= 0) {
+      // tight centroid around the peak row, so smeared edges do not bias the center
+      let peak = runStart
+      let strong = 0
+      for (let r = runStart; r < y; r++) {
+        if (proj[r] > proj[peak]) peak = r
+        if (proj[r] > 0.5 * max) strong++
+      }
+      let weight = 0
+      let sum = 0
+      for (let r = peak - 2; r <= peak + 2; r++) {
+        const v = proj[r] ?? 0
+        if (v < proj[peak] * 0.5) continue
+        weight += v
+        sum += v * r
+      }
+      centers.push(sum / weight)
+      runLengths.push(strong)
+      peaks.push(proj[peak])
+      runStart = -1
     }
   }
-  if (best.score < width * 2.5) throw new Error('Could not detect staff lines')
 
-  // refine each line: peak row near the expected position, then a tight centroid
-  // around the peak so nearby noteheads do not bias the center
-  const lines: number[] = []
-  for (let k = 0; k < 5; k++) {
-    const guess = best.y0 + k * best.spacing
-    const r = Math.max(1, Math.round(best.spacing / 3))
-    const center = Math.round(guess)
-    let peak = center
-    for (let y = center - r; y <= center + r; y++) {
-      if ((proj[y] ?? 0) > (proj[peak] ?? 0)) peak = y
+  // group candidates into staves: 5 evenly spaced lines. Beam bands and
+  // notehead rows also project strongly (rhythm staves align them at one
+  // height), so spurious candidates may sit between real lines; chains may
+  // skip candidates, and competing chains are ranked by projection strength
+  // (real lines project far stronger than beam/head bands).
+  const chains: { idx: number[]; score: number }[] = []
+  for (let i = 0; i < centers.length; i++) {
+    for (let j = i + 1; j < centers.length; j++) {
+      const spacing = centers[j] - centers[i]
+      if (spacing < 5 || spacing > height / 5) continue
+      const tol = Math.max(1.5, 0.2 * spacing)
+      const idx = [i, j]
+      while (idx.length < 5) {
+        const want = centers[idx[idx.length - 1]] + spacing
+        let bestK = -1
+        for (let k = idx[idx.length - 1] + 1; k < centers.length; k++) {
+          if (
+            Math.abs(centers[k] - want) <= tol &&
+            (bestK < 0 || Math.abs(centers[k] - want) < Math.abs(centers[bestK] - want))
+          )
+            bestK = k
+        }
+        if (bestK < 0) break
+        idx.push(bestK)
+      }
+      if (idx.length === 5)
+        chains.push({ idx, score: idx.reduce((a, k) => a + peaks[k], 0) })
     }
-    let weight = 0
-    let sum = 0
-    for (let y = peak - 2; y <= peak + 2; y++) {
-      const v = proj[y] ?? 0
-      if (v < proj[peak] * 0.5) continue
-      weight += v
-      sum += v * y
-    }
-    lines.push(weight > 0 ? sum / weight : guess)
   }
-  const spacing = (lines[4] - lines[0]) / 4
-
-  let thickRows = 0
-  for (let y = 0; y < height; y++) if (proj[y] > max * 0.5) thickRows++
-  const thickness = Math.max(1, thickRows / 5)
-
-  return { lines, spacing, thickness, slope }
+  chains.sort((a, b) => b.score - a.score)
+  const used = new Set<number>()
+  const staves: StaffInfo[] = []
+  for (const { idx } of chains) {
+    if (idx.some((k) => used.has(k))) continue
+    for (const k of idx) used.add(k)
+    const lines = idx.map((k) => centers[k])
+    const thickness = Math.max(1, idx.reduce((a, k) => a + runLengths[k], 0) / 5)
+    staves.push({ lines, spacing: (lines[4] - lines[0]) / 4, thickness, slope })
+  }
+  staves.sort((a, b) => a.lines[0] - b.lines[0])
+  if (staves.length === 0) throw new Error('Could not detect staff lines')
+  return staves
 }
 
 function removeStaffLines(bin: Uint8Array, width: number, height: number, staff: StaffInfo) {
@@ -233,27 +263,34 @@ function findHeads(filtered: Uint8Array, width: number, height: number, s: numbe
     }
     const w = maxX - minX + 1
     const h = maxY - minY + 1
-    if (area >= 0.3 * s * s && w >= 0.5 * s && w <= 2 * s && h >= 0.5 * s && h <= 2 * s) {
+    // w <= 1.5h: noteheads are mildly wide ellipses; tie-arc tops are far wider
+    if (area >= 0.45 * s * s && w >= 0.65 * s && w <= 2 * s && h >= 0.6 * s && h <= 2 * s && w <= 1.5 * h) {
       heads.push({ x: sumX / area, y: sumY / area, minX, maxX, minY, maxY })
     }
   }
   return heads.sort((a, b) => a.x - b.x)
 }
 
-// longest vertical black run in a column that overlaps the head's rows
+// longest vertical black run in a column that overlaps the head's rows.
+// Scanned stems are ~2px wide and jog sideways by a pixel, so a run continues
+// through ink in the adjacent columns too.
 function runThroughHead(bin: Uint8Array, width: number, height: number, x: number, head: Head) {
+  const on = (y: number) =>
+    bin[y * width + x] ||
+    (x > 0 && bin[y * width + x - 1]) ||
+    (x < width - 1 && bin[y * width + x + 1])
   let yc = -1
   for (let y = head.minY; y <= head.maxY; y++) {
-    if (bin[y * width + x]) {
+    if (on(y)) {
       yc = y
       break
     }
   }
   if (yc < 0) return null
   let top = yc
-  while (top > 0 && bin[(top - 1) * width + x]) top--
+  while (top > 0 && on(top - 1)) top--
   let bottom = yc
-  while (bottom < height - 1 && bin[(bottom + 1) * width + x]) bottom++
+  while (bottom < height - 1 && on(bottom + 1)) bottom++
   return { top, bottom, length: bottom - top + 1 }
 }
 
@@ -297,18 +334,25 @@ function countBeams(
         runLen = 0
         return
       }
-      const ym = endY - dir * Math.round(runLen / 2)
-      let l = x
-      while (l > 0 && bin[ym * width + l - 1]) l--
-      let r = x
-      while (r < width - 1 && bin[ym * width + r + 1]) r++
-      const hr = r - l + 1
       if (mode === 'beam') {
         count++
-      } else if (hr >= 0.3 * s && hr < 1.5 * s) {
-        // flag-sized: excludes staff-line leftovers (long) and specks (short)
-        count++
+        runLen = 0
+        return
       }
+      // flag-sized on some row: excludes staff-line leftovers (long) and
+      // specks (short). Thin diagonal flag strokes are narrow at mid-run, so
+      // every row of the run is checked, not just the middle one.
+      let ok = false
+      for (let i = 1; i <= runLen && !ok; i++) {
+        const ym = endY - dir * i
+        let l = x
+        while (l > 0 && bin[ym * width + l - 1]) l--
+        let r = x
+        while (r < width - 1 && bin[ym * width + r + 1]) r++
+        const hr = r - l + 1
+        if (hr >= 0.3 * s && hr < 1.5 * s) ok = true
+      }
+      if (ok) count++
       runLen = 0
     }
     for (let i = 0; i <= scanLen; i++) {
@@ -409,7 +453,9 @@ function dotInWindow(
       }
       const w = maxX - minX + 1
       const h = maxY - minY + 1
-      if (!escapes && area >= 0.04 * s * s && w <= 0.7 * s && h <= 0.7 * s) dotted = true
+      // round blob: staff-line leftovers and flag-tip flakes are smaller/flatter
+      if (!escapes && area >= 0.07 * s * s && w <= 0.7 * s && h <= 0.7 * s && h >= 0.18 * s && w <= 2.5 * h)
+        dotted = true
     }
   }
   return dotted
@@ -501,8 +547,11 @@ function findHollowHeads(bin: Uint8Array, width: number, height: number, s: numb
     const w = hole.maxX - hole.minX + 1
     const h = hole.maxY - hole.minY + 1
     // notehead holes are wide and flat; pockets between key-signature flats,
-    // digit holes, and clef curls are smaller or taller
-    if (hole.area < 0.3 * s * s || w < 0.7 * s || h < 0.35 * s || h > 0.75 * s || w < h) continue
+    // digit holes, and clef curls are smaller or taller. Blurry/small images
+    // have fewer pixels; the thin-ring check below handles false positives.
+    // Whole notes sitting on a staff line can have h > w after the line
+    // erases part of the ring, so w < h is not checked here.
+    if (hole.area < 0.15 * s * s || w < 0.55 * s || h < 0.3 * s || h > 0.85 * s) continue
     // elliptical hole: rectangular white cells between stems/beams/lines fill their bbox
     const fill = hole.area / (w * h)
     if (fill > 0.88) continue
@@ -524,12 +573,13 @@ function findHollowHeads(bin: Uint8Array, width: number, height: number, s: numb
           run++
         } else if (started) break
       }
-      thin.push(started && run <= 0.45 * s)
+      // blurry/small images have thicker ink; 0.75*s accepts up to ~10px rings
+      thin.push(started && run <= 0.75 * s)
     }
-    // horizontal rays must be thin: pockets between beamed noteheads are
-    // bounded left/right by solid heads, a real ring is thin all around
-    if (!thin[0] || !thin[4]) continue
-    if (thin.filter(Boolean).length < 7) continue
+    // pockets between beamed noteheads have many surrounding black pixels;
+    // blobAreaAround (applied later) rejects them. Require 6/8 thin rays so
+    // that whole notes with thick horizontal runs on two sides still pass.
+    if (thin.filter(Boolean).length < 6) continue
     heads.push({
       x: cx,
       y: cy,
@@ -538,6 +588,18 @@ function findHollowHeads(bin: Uint8Array, width: number, height: number, s: numb
       minY: Math.max(0, hole.minY - pad),
       maxY: Math.min(height - 1, hole.maxY + pad),
     })
+  }
+  // keep only the largest hole within each s-radius cluster (small holes adjacent
+  // to the real ring can pass the checks and would cause duplicate events)
+  for (let i = 0; i < heads.length; i++) {
+    for (let j = i + 1; j < heads.length; j++) {
+      if (Math.abs(heads[i].x - heads[j].x) < s && Math.abs(heads[i].y - heads[j].y) < s) {
+        const ai = (heads[i].maxX - heads[i].minX) * (heads[i].maxY - heads[i].minY)
+        const aj = (heads[j].maxX - heads[j].minX) * (heads[j].maxY - heads[j].minY)
+        if (ai >= aj) heads.splice(j--, 1)
+        else { heads.splice(i--, 1); break }
+      }
+    }
   }
   return heads
 }
@@ -589,6 +651,16 @@ function findRests(
   const rests: { head: Head; duration: NoteEvent['duration'] }[] = []
   const yTop = Math.max(0, Math.round(staff.lines[0] - s))
   const yBottom = Math.min(height - 1, Math.round(staff.lines[4] + s))
+  interface RComp {
+    area: number
+    sumX: number
+    sumY: number
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+  }
+  const comps: RComp[] = []
   for (let yy = yTop; yy <= yBottom; yy++) {
     for (let xx = 0; xx < width; xx++) {
       const start = yy * width + xx
@@ -620,6 +692,41 @@ function findRests(
           stack.push(q)
         }
       }
+      comps.push({ area, sumX, sumY, minX, maxX, minY, maxY })
+    }
+  }
+
+  // rejoin glyph fragments split by staff-line removal (a rest crossing a
+  // line loses its connecting stroke there). Only small fragments merge, and
+  // only while the union stays rest-sized, so chains cannot creep across
+  // line leftovers into stems or beams.
+  for (let i = 0; i < comps.length; i++) {
+    for (let j = i + 1; j < comps.length; j++) {
+      const a = comps[i]
+      const b = comps[j]
+      if (a.area > 2.5 * s * s || b.area > 2.5 * s * s) continue
+      const xGap = Math.max(a.minX, b.minX) - Math.min(a.maxX, b.maxX)
+      const yGap = Math.max(a.minY, b.minY) - Math.min(a.maxY, b.maxY)
+      const mw = Math.max(a.maxX, b.maxX) - Math.min(a.minX, b.minX) + 1
+      const mh = Math.max(a.maxY, b.maxY) - Math.min(a.minY, b.minY) + 1
+      if (mw > 1.8 * s || mh > 3.4 * s) continue
+      if (xGap <= 0.1 * s && yGap <= 0.35 * s) {
+        comps[i] = {
+          area: a.area + b.area,
+          sumX: a.sumX + b.sumX,
+          sumY: a.sumY + b.sumY,
+          minX: Math.min(a.minX, b.minX),
+          maxX: Math.max(a.maxX, b.maxX),
+          minY: Math.min(a.minY, b.minY),
+          maxY: Math.max(a.maxY, b.maxY),
+        }
+        comps.splice(j, 1)
+        j = i // recheck against the merged comp
+      }
+    }
+  }
+
+  for (const { area, sumX, sumY, minX, maxX, minY, maxY } of comps) {
       const w = maxX - minX + 1
       const h = maxY - minY + 1
       const cx = sumX / area
@@ -646,31 +753,46 @@ function findRests(
         }
       }
       const isolated = windowBlack <= area * 1.35
-      // squiggle rests (quarter/eighth/16th) hang around the middle of the staff
+      ;(globalThis as { __restDbg?: object[] }).__restDbg?.push({
+        minX, maxX, minY, maxY, w, h, area, isolated, windowBlack,
+        offMiddle: Math.abs(yCorr - middle),
+        tallGroups: tallColumnGroups(bin, width, height, s, minX, maxX, minY, maxY),
+      })
+      // squiggle rests (quarter/eighth/16th) hang around the middle of the staff;
+      // accidentals (two long vertical strokes) land here too, so exclude them
       if (
         isolated &&
         w >= 0.35 * s &&
-        w <= 1.25 * s &&
+        // up to 1.6 s: 16th-rest balls can stack diagonally, widening the glyph
+        w <= 1.6 * s &&
         h >= 0.8 * s &&
         h <= 3.2 * s &&
         Math.abs(yCorr - middle) <= 1.2 * s &&
-        area >= 0.25 * s * s
+        area >= 0.25 * s * s &&
+        tallColumnGroups(bin, width, height, s, minX, maxX, minY, maxY) < 2
       ) {
         // count the "balls" along the glyph: eighth rests have one, 16th two,
         // quarter rests are tall zigzags
         let balls = 0
         let bandRows = 0
+        let firstBand = -1
         for (let y = minY; y <= maxY; y++) {
           let rowWidth = 0
           for (let x = minX; x <= maxX; x++) rowWidth += bin[y * width + x]
-          if (rowWidth >= 0.42 * s) bandRows++
-          else {
+          if (rowWidth >= 0.42 * s) {
+            bandRows++
+            if (firstBand < 0) firstBand = y
+          } else {
             if (bandRows >= 0.2 * s) balls++
             bandRows = 0
           }
         }
         if (bandRows >= 0.2 * s) balls++
-        const duration: NoteEvent['duration'] = balls >= 2 ? 16 : h > 2.4 * s ? 4 : 8
+        // 8th/16th rests lead with a ball right at the top; a tall glyph whose
+        // first thick band sits well below the top is a quarter-rest zigzag,
+        // even when its bulges read as two balls
+        const quarter = h > 2.4 * s && (firstBand < 0 || firstBand - minY > 0.35 * s)
+        const duration: NoteEvent['duration'] = quarter ? 4 : balls >= 2 ? 16 : h > 2.4 * s ? 4 : 8
         rests.push({ head, duration })
       } else if (
         isolated &&
@@ -687,17 +809,60 @@ function findRests(
         const whole = Math.abs(topCorr - staff.lines[1]) <= 0.3 * s
         if (half || whole) rests.push({ head, duration: half ? 2 : 1 })
       }
-    }
   }
   return rests
 }
 
+// groups of adjacent columns whose vertical black run is stroke-length: a sharp
+// or natural sign has two, which neither rests nor noteheads have
+function tallColumnGroups(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  s: number,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+): number {
+  let groups = 0
+  let inGroup = false
+  for (let x = Math.max(0, x0); x <= Math.min(width - 1, x1); x++) {
+    let run = 0
+    let longest = 0
+    for (let y = Math.max(0, y0); y <= Math.min(height - 1, y1); y++) {
+      run = bin[y * width + x] ? run + 1 : 0
+      longest = Math.max(longest, run)
+    }
+    const tall = longest >= 1.5 * s
+    if (tall && !inGroup) groups++
+    inGroup = tall
+  }
+  return groups
+}
+
+interface Lead {
+  clef: Clef | null
+  endX: number // glyphs left of this are clef/time-signature/key-signature, not notes
+  // the clef glyph's own box: head candidates inside it are clef parts, not notes
+  clefBox: { minX: number; maxX: number } | null
+}
+
 // the clef is the leftmost large glyph on the staff: a treble clef extends far
 // above and below the staff (~7 spacings tall), a bass clef fits inside (~3).
-function detectClef(bin: Uint8Array, width: number, height: number, staff: StaffInfo): Clef | null {
+// Time/key-signature glyphs hug the clef inside the staff band; endX marks
+// where this lead region stops so its glyphs are not read as notes.
+function detectLead(bin: Uint8Array, width: number, height: number, staff: StaffInfo): Lead {
   const s = staff.spacing
   const visited = new Uint8Array(width * height)
-  let best: { minX: number; h: number } | null = null
+  interface Comp {
+    minX: number
+    maxX: number
+    minY: number
+    maxY: number
+    area: number
+  }
+  const comps: Comp[] = []
   for (let yy = 0; yy < height; yy++) {
     for (let xx = 0; xx < width; xx++) {
       const start = yy * width + xx
@@ -725,43 +890,178 @@ function detectClef(bin: Uint8Array, width: number, height: number, staff: Staff
           stack.push(q)
         }
       }
-      const w = maxX - minX + 1
-      const h = maxY - minY + 1
-      const cx = (minX + maxX) / 2
-      const cyCorr = (minY + maxY) / 2 - staff.slope * cx
-      if (cyCorr < staff.lines[0] - 3 * s || cyCorr > staff.lines[4] + 3 * s) continue
-      if (area < 2.5 * s * s || h < 2.2 * s || w < 1.4 * s || w > 4 * s) continue
-      if (!best || minX < best.minX) best = { minX, h }
+      comps.push({ minX, maxX, minY, maxY, area })
     }
   }
-  if (!best) return null
-  return best.h > 5 * s ? 'treble' : 'bass'
+
+  let clefComp: Comp | null = null
+  for (const c of comps) {
+    const w = c.maxX - c.minX + 1
+    const h = c.maxY - c.minY + 1
+    const cx = (c.minX + c.maxX) / 2
+    const cyCorr = (c.minY + c.maxY) / 2 - staff.slope * cx
+    if (cyCorr < staff.lines[0] - 3 * s || cyCorr > staff.lines[4] + 3 * s) continue
+    if (c.area < 2.5 * s * s || h < 2.2 * s || w < 1.4 * s || w > 4 * s) continue
+    if (!clefComp || c.minX < clefComp.minX) clefComp = c
+  }
+  const clefH = clefComp ? clefComp.maxY - clefComp.minY + 1 : 0
+  if (!clefComp || clefH <= 5 * s) {
+    // not a tall treble clef. A bass clef is identified by its structure:
+    // two dots right of the body, straddling the F line (2nd line from top).
+    // Note groups and stray blobs never carry that dot pair, and begin-repeat
+    // dots straddle the middle line instead, so neither false-positives here.
+    // This also catches clefs that staff-line removal shredded so badly that
+    // no single component passes the size checks above.
+    const isDot = (c: Comp) =>
+      c.maxX - c.minX + 1 <= 0.8 * s &&
+      c.maxY - c.minY + 1 <= 0.8 * s &&
+      c.area >= 0.03 * s * s
+    const cy = (c: Comp) => (c.minY + c.maxY) / 2 - (staff.slope * (c.minX + c.maxX)) / 2
+    const tol = 0.15 * s
+    for (const upper of comps) {
+      if (!isDot(upper)) continue
+      const uy = cy(upper)
+      if (uy <= staff.lines[0] - tol || uy >= staff.lines[1] + tol) continue
+      for (const lower of comps) {
+        if (lower === upper || !isDot(lower)) continue
+        const ly = cy(lower)
+        if (ly <= staff.lines[1] - tol || ly >= staff.lines[2] + tol) continue
+        if (ly - uy < 0.5 * s) continue
+        if (Math.abs((upper.minX + upper.maxX) / 2 - (lower.minX + lower.maxX) / 2) > 0.5 * s)
+          continue
+        const dotMinX = Math.min(upper.minX, lower.minX)
+        const dotMaxX = Math.max(upper.maxX, lower.maxX)
+        // the clef body sits immediately left of the dots
+        for (const body of comps) {
+          const bh = body.maxY - body.minY + 1
+          if (bh < 2 * s || body.area < 0.8 * s * s) continue
+          const gap = dotMinX - body.maxX
+          if (gap < -0.2 * s || gap > 1.2 * s) continue
+          // mask the whole clef region: shredding may have split off curls
+          // further left than the body fragment found here
+          return {
+            clef: 'bass',
+            endX: 0,
+            clefBox: { minX: Math.min(body.minX, dotMinX - 2.8 * s), maxX: dotMaxX },
+          }
+        }
+      }
+    }
+    // low-res scans fuse the dots into the body: fall back to "compact
+    // leftmost glyph means bass", but mask nothing by it -- such a glyph is
+    // too easily a note group, and masking would swallow real notes
+    if (clefComp) return { clef: 'bass', endX: 0, clefBox: null }
+    return { clef: null, endX: 0, clefBox: null }
+  }
+
+  // time-signature glyphs (digits, common-time C) hug the clef and sit fully
+  // inside the staff; notes do not qualify because their stems poke outside.
+  // Staff-line removal splits these glyphs, so merge vertical fragments first.
+  const zone = comps.filter((c) => c.minX > clefComp.maxX - s && c.minX < clefComp.maxX + 8 * s)
+  for (let i = 0; i < zone.length; i++) {
+    for (let j = i + 1; j < zone.length; j++) {
+      const a = zone[i]
+      const b = zone[j]
+      const gap = Math.max(a.minY, b.minY) - Math.min(a.maxY, b.maxY)
+      if (Math.abs((a.minX + a.maxX) / 2 - (b.minX + b.maxX) / 2) < 0.6 * s && gap <= 0.5 * s) {
+        zone[i] = {
+          minX: Math.min(a.minX, b.minX),
+          maxX: Math.max(a.maxX, b.maxX),
+          minY: Math.min(a.minY, b.minY),
+          maxY: Math.max(a.maxY, b.maxY),
+          area: a.area + b.area,
+        }
+        zone.splice(j, 1)
+        j = i
+      }
+    }
+  }
+  let endX = clefComp.maxX
+  for (const c of zone.sort((a, b) => a.minX - b.minX)) {
+    if (c.minX > endX + 2 * s) break
+    const w = c.maxX - c.minX + 1
+    const h = c.maxY - c.minY + 1
+    const cx = (c.minX + c.maxX) / 2
+    if (c.minY - staff.slope * cx < staff.lines[0] - 0.3 * s) continue
+    if (c.maxY - staff.slope * cx > staff.lines[4] + 0.3 * s) continue
+    if (h < 1.2 * s || w > 2.2 * s) continue
+    endX = Math.max(endX, c.maxX)
+  }
+  return { clef: 'treble', endX, clefBox: clefComp }
 }
 
 export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
-  const staff = findStaff(bin, width, height)
+  const staves = findStaves(bin, width, height)
+
+  const events: NoteEvent[] = []
+  const heads: { x: number; y: number }[] = []
+  let usedClef: Clef | undefined = clef
+  for (const staff of staves) {
+    // recognize each staff on its own horizontal band so systems do not interfere
+    const pad = Math.round(4.5 * staff.spacing)
+    const y0 = Math.max(0, Math.round(staff.lines[0]) - pad)
+    const y1 = Math.min(height, Math.round(staff.lines[4]) + pad)
+    const local = { ...staff, lines: staff.lines.map((l) => l - y0) }
+    const r = recognizeStaff(bin.slice(y0 * width, y1 * width), width, y1 - y0, local, usedClef)
+    usedClef = usedClef ?? r.clef
+    ;(globalThis as { __headDbg?: object[] }).__headDbg?.push(
+      ...r.heads.map((h, i) => ({ ...h, y: h.y + y0, minY: h.minY + y0, maxY: h.maxY + y0, ev: r.events[i] })),
+    )
+    events.push(...r.events)
+    heads.push(...r.heads.map((h) => ({ x: h.x, y: h.y + y0 })))
+  }
+  return {
+    events,
+    heads,
+    staffLines: staves.flatMap((st) => st.lines),
+    staffSpacing: staves[0].spacing,
+    clef: usedClef ?? 'treble',
+  }
+}
+
+function recognizeStaff(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  staff: StaffInfo,
+  clef: Clef | undefined,
+): { events: NoteEvent[]; heads: Head[]; clef: Clef } {
   const s = staff.spacing
   const hollowHeads = findHollowHeads(bin, width, height, s)
   const binOrig = bin.slice()
   removeStaffLines(bin, width, height, staff)
-  const usedClef = clef ?? detectClef(bin, width, height, staff) ?? 'treble'
+  const lead = detectLead(bin, width, height, staff)
+  ;(globalThis as { __leadDbg?: object[] }).__leadDbg?.push(lead)
+  const usedClef = clef ?? lead.clef ?? 'treble'
   const filtered = filterHeadPixels(bin, width, height, s)
   const hollowCap = 3.5 * s * s
-  // only read heads near the detected staff (multi-staff pages: nearest staff only)
+  // only read heads near the staff and right of the clef/signature region
   const nearStaff = ({ head }: { head: Head }) => {
+    if (head.minX <= lead.endX) return false
+    if (lead.clefBox && head.x >= lead.clefBox.minX && head.x <= lead.clefBox.maxX) return false
     const yCorr = head.y - staff.slope * head.x
     return yCorr >= staff.lines[0] - 3.5 * s && yCorr <= staff.lines[4] + 3.5 * s
   }
-  const all = [
-    ...findHeads(filtered, width, height, s).map((head) => ({ head, hollow: false })),
-    ...hollowHeads
-      .filter((head) => blobAreaAround(bin, width, height, head, hollowCap) <= hollowCap)
-      .map((head) => ({ head, hollow: true })),
-  ]
+  const validHollow = hollowHeads
+    .filter((head) => blobAreaAround(bin, width, height, head, hollowCap) <= hollowCap)
+    .map((head) => ({ head, hollow: true }))
     .filter(nearStaff)
-    .sort((a, b) => a.head.x - b.head.x)
+  const all = [
+    // drop filled heads that overlap a confirmed hollow head: the hollow ring
+    // and the filled blob occupy the same pixels; keeping both causes duplicate events
+    ...findHeads(filtered, width, height, s)
+      .map((head) => ({ head, hollow: false }))
+      .filter(
+        (f) =>
+          nearStaff(f) &&
+          !validHollow.some(
+            (h) => Math.abs(h.head.x - f.head.x) < 0.7 * s && Math.abs(h.head.y - f.head.y) < 0.7 * s,
+          ),
+      ),
+    ...validHollow,
+  ].sort((a, b) => a.head.x - b.head.x)
 
   const noteEvents: { x: number; head: Head; event: NoteEvent }[] = all.map(({ head, hollow }) => {
     // interpolate between the two nearest detected lines (skew-corrected space)
@@ -785,20 +1085,35 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
       duration = beams >= 2 ? 16 : beams === 1 ? 8 : 4
     } else duration = 4
     const dotted = hasDot(bin, width, height, s, head)
+    // a sharp/natural sign (two long vertical strokes) right before the head
+    const sharp =
+      tallColumnGroups(
+        bin,
+        width,
+        height,
+        s,
+        Math.round(head.minX - 1.5 * s),
+        Math.round(head.minX - 0.3 * s),
+        Math.round(head.y - 1.6 * s),
+        Math.round(head.y + 1.6 * s),
+      ) >= 2
+    const pitch = staffPitch(steps, usedClef)
 
     return {
       x: head.x,
       head,
       event: {
         kind: 'note' as const,
-        pitch: staffPitch(steps, usedClef),
+        pitch: sharp ? { ...pitch, accidental: 'sharp' as const } : pitch,
         duration,
         ...(dotted && { dotted }),
       },
     }
   })
 
-  const restEvents = findRests(bin, width, height, staff, all.map((a) => a.head)).map(
+  const restEvents = findRests(bin, width, height, staff, all.map((a) => a.head))
+    .filter(({ head }) => nearStaff({ head }))
+    .map(
     ({ head, duration }) => ({
       x: head.x,
       head,
@@ -826,8 +1141,6 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
   return {
     events: merged.map((m) => m.event),
     heads: merged.map((m) => m.head),
-    staffLines: staff.lines,
-    staffSpacing: s,
     clef: usedClef,
   }
 }
@@ -872,7 +1185,7 @@ function arcBetween(
           y = bottom // skip the staff line; look further down the band
           continue
         }
-        if (top >= bandTop && bottom - top + 1 <= 0.35 * s) hits++
+        if (top >= bandTop && bottom - top + 1 <= 0.5 * s) hits++
         break
       }
     }
