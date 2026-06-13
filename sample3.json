@@ -1,0 +1,127 @@
+{
+  "id": "c9aa9866-eada-4b0d-8afd-0a39dd4009ea",
+  "title": "New score",
+  "clef": "treble",
+  "keySig": "C",
+  "timeSig": "4/4",
+  "tempo": 100,
+  "events": [
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "D",
+        "octave": 5
+      },
+      "duration": 4
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "D",
+        "octave": 5
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "D",
+        "octave": 5
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "C",
+        "octave": 5
+      },
+      "duration": 4
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "C",
+        "octave": 5
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "C",
+        "octave": 5
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "A",
+        "octave": 4
+      },
+      "duration": 4
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "A",
+        "octave": 4
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "accidental": "sharp"
+      },
+      "duration": 8,
+      "tie": true
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "F",
+        "octave": 4,
+        "accidental": "sharp"
+      },
+      "duration": 2
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "D",
+        "octave": 4
+      },
+      "duration": 2,
+      "dotted": true
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "A",
+        "octave": 4
+      },
+      "duration": 8
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "G",
+        "octave": 4
+      },
+      "duration": 8,
+      "tie": true
+    },
+    {
+      "kind": "note",
+      "pitch": {
+        "step": "G",
+        "octave": 4
+      },
+      "duration": 1
+    }
+  ]
+}
