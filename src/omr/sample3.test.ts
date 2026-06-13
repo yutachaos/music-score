@@ -19,7 +19,7 @@ describe('sample3.png (treble-clef melody with half, dotted-half, and whole note
         (e) => `${e.duration}${e.dotted ? '.' : ''}${e.tie ? '-' : ''}`,
       ),
     ).toEqual([
-      '4', '8', '4',
+      '4', '8', '8',
       '4', '8', '8',
       '4', '8', '8-',
       '2', '2.',

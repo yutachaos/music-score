@@ -164,7 +164,11 @@ function findStaves(bin: Uint8Array, width: number, height: number): StaffInfo[]
 }
 
 function removeStaffLines(bin: Uint8Array, width: number, height: number, staff: StaffInfo) {
-  const maxRun = Math.ceil(staff.thickness * 2)
+  // tighter than thickness*2: a beam fused with the line can produce a
+  // vertical run roughly thickness*2 tall, and erasing it would destroy
+  // the beam. thickness*1.6 still covers a staff line plus typical
+  // anti-alias padding.
+  const maxRun = Math.ceil(staff.thickness * 1.6)
   // pages warp: lines drift a few pixels from the linear skew model
   const search = Math.ceil(staff.thickness) + 4
   for (const line of staff.lines) {
