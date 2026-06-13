@@ -318,10 +318,20 @@ function countBeams(
   s: number,
   head: Head,
   stem: { x: number; tip: number },
+  staff?: StaffInfo,
 ): number {
   const dir = stem.tip < head.y ? 1 : -1 // scan from tip toward the head
   const scanLen = Math.min(2.5 * s, Math.abs(head.y - stem.tip) - 0.8 * s)
   const minBand = Math.max(2, 0.1 * s)
+  // when scanning the pre-removal bitmap, ignore pixels lying on a staff line
+  const onLine = (x: number, y: number): boolean => {
+    if (!staff) return false
+    const t = Math.max(1, Math.ceil(staff.thickness / 2))
+    for (const line of staff.lines) {
+      if (Math.abs(y - (line + staff.slope * x)) <= t) return true
+    }
+    return false
+  }
 
   function scanColumn(x: number, mode: 'beam' | 'flag'): number {
     if (x < 0 || x >= width) return 0
@@ -358,7 +368,11 @@ function countBeams(
     for (let i = 0; i <= scanLen; i++) {
       const y = stem.tip + dir * i
       if (y < 0 || y >= height) break
-      if (bin[y * width + x]) runLen++
+      // staff lines fuse with beams; treating line pixels as separators makes
+      // a 16th beam that sits across the line read as two beams instead of
+      // one fat band
+      const on = bin[y * width + x] && !onLine(x, y)
+      if (on) runLen++
       else closeBand(y)
     }
     closeBand(stem.tip + dir * Math.round(scanLen + 1))
@@ -1127,6 +1141,25 @@ function recognizeStaff(
 
   const merged = [...noteEvents, ...restEvents].sort((a, b) => a.x - b.x)
 
+  // accidental persistence: when a note carries an accidental (sharp/flat/
+  // natural), later notes of the same step+octave keep it within the same
+  // measure. We approximate measures by clearing the carry whenever the gap
+  // between notes is large (likely a barline). The cap is wide because
+  // mid-measure note spacing varies a lot in scanned scores.
+  const carry = new Map<string, NonNullable<typeof noteEvents[number]['event']['pitch']>['accidental']>()
+  let lastX = -Infinity
+  for (const m of merged) {
+    if (m.event.kind !== 'note') continue
+    const p = m.event.pitch!
+    const key = `${p.step}${p.octave}`
+    if (m.x - lastX > 8 * s) carry.clear()
+    if (p.accidental) carry.set(key, p.accidental)
+    else if (carry.has(key)) {
+      m.event = { ...m.event, pitch: { ...p, accidental: carry.get(key)! } }
+    }
+    lastX = m.x
+  }
+
   // ties: a thin arc between two consecutive same-pitch notes
   for (let i = 0; i < merged.length - 1; i++) {
     const a = merged[i]
@@ -1165,31 +1198,53 @@ function arcBetween(
     [Math.min(a.minY, b.minY) - Math.round(1.8 * s), Math.min(a.minY, b.minY) - 1],
   ]
   for (const [bandTop, bandBottom] of bands) {
-    let hits = 0
+    // record hit y per column; arc strokes form a smooth curve while stem
+    // tips and stray noise scatter, so a long contiguous run of similar y's
+    // is the real arc signature
+    const hitY: number[] = new Array(x1 - x0 + 1).fill(-1)
     for (let x = x0; x <= x1; x++) {
       for (let y = Math.max(0, bandTop); y <= Math.min(height - 1, bandBottom); y++) {
         if (!bin[y * width + x]) continue
-        // full vertical run, even past the band edges, so clipped beams and
-        // stems are not mistaken for a thin arc stroke
         let top = y
         while (top > 0 && bin[(top - 1) * width + x]) top--
         let bottom = y
         while (bottom < height - 1 && bin[(bottom + 1) * width + x]) bottom++
-        // staff lines run horizontally far; an arc stroke's row is short
-        const ym = (top + bottom) >> 1
-        let l = x
-        while (l > 0 && bin[ym * width + l - 1]) l--
-        let r = x
-        while (r < width - 1 && bin[ym * width + r + 1]) r++
-        if (r - l + 1 >= 1.5 * s && bottom - top + 1 <= staff.thickness + 2) {
-          y = bottom // skip the staff line; look further down the band
-          continue
+        // peel staff-line-wide rows off the top so an arc fused with a line
+        // is still recognized as the arc stroke beneath
+        while (top <= bottom) {
+          let l = x
+          while (l > 0 && bin[top * width + l - 1]) l--
+          let r = x
+          while (r < width - 1 && bin[top * width + r + 1]) r++
+          if (r - l + 1 < 1.5 * s) break
+          top++
         }
-        if (top >= bandTop && bottom - top + 1 <= 0.5 * s) hits++
-        break
+        if (top > bottom) { y = bottom; continue }
+        if (top >= bandTop && bottom - top + 1 <= 0.7 * s) {
+          hitY[x - x0] = top
+          break
+        }
+        y = bottom
       }
     }
-    if (hits / (x1 - x0 + 1) >= 0.55) return true
+    const valid = hitY.map((y, i) => ({ y, i })).filter((p) => p.y >= 0)
+    if (valid.length / hitY.length < 0.4) continue
+    // arcs are U-shaped: hit y in the middle of the scan reaches further from
+    // the staff than at the edges. Beams and other flat noise have y
+    // ~constant across the scan and fail this test.
+    const w = hitY.length
+    const edgeRange = Math.max(2, Math.round(0.15 * w))
+    const edge = valid.filter((p) => p.i < edgeRange || p.i >= w - edgeRange).map((p) => p.y)
+    const mid = valid.filter((p) => p.i >= w / 3 && p.i < (2 * w) / 3).map((p) => p.y)
+    if (edge.length < 2 || mid.length < 1) continue
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length
+    const curvature = Math.abs(avg(mid) - avg(edge))
+    // arcs are gentle curves a few pixels deep. Beam debris produces a
+    // larger, jagged spread that exceeds the typical arc depth.
+    const yMin = Math.min(...valid.map((p) => p.y))
+    const yMax = Math.max(...valid.map((p) => p.y))
+    if (yMax - yMin > s) continue
+    if (curvature >= 0.15 * s) return true
   }
   return false
 }

@@ -21,9 +21,13 @@ describe('sample3.png (treble-clef melody with half, dotted-half, and whole note
     ).toEqual([
       '4', '8', '4',
       '4', '8', '8',
-      '4', '8', '8',
+      '4', '8', '8-',
       '2', '2.',
-      '8', '8', '1',
+      '8', '8-', '1',
     ])
+    // measure 4 carries the sharp from F#4 to the half note
+    const note9 = result.events[9]
+    expect(note9.kind).toBe('note')
+    expect(note9.pitch).toEqual({ step: 'F', octave: 4, accidental: 'sharp' })
   })
 })
