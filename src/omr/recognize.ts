@@ -70,6 +70,21 @@ function projection(bin: Uint8Array, width: number, height: number, slope: numbe
   return proj
 }
 
+function refineSlope(bin: Uint8Array, width: number, height: number, initSlope: number): number {
+  let best = initSlope
+  let bestSharpness = -1
+  for (let s = initSlope - 0.003; s <= initSlope + 0.0031; s += 0.0005) {
+    const p = projection(bin, width, height, s)
+    let sharpness = 0
+    for (let i = 0; i < height; i++) sharpness += p[i] * p[i]
+    if (sharpness > bestSharpness) {
+      bestSharpness = sharpness
+      best = s
+    }
+  }
+  return best
+}
+
 function findStaves(bin: Uint8Array, width: number, height: number): StaffInfo[] {
   // estimate skew: the slope that makes the projection sharpest
   let slope = 0
@@ -306,9 +321,26 @@ function findStem(bin: Uint8Array, width: number, height: number, s: number, hea
   const x1 = Math.min(width - 1, head.maxX + 2)
   for (let x = x0; x <= x1; x++) {
     const run = runThroughHead(bin, width, height, x, head)
-    if (!run || run.length <= longest) continue
-    longest = run.length
-    const tip = head.y - run.top > run.bottom - head.y ? run.top : run.bottom
+    if (!run) continue
+    // staff-line removal can leave a 1-2 px gap splitting the stem; bridge it
+    // by looking for ink just above the run top and merging the two portions
+    const on = (y: number) =>
+      bin[y * width + x] ||
+      (x > 0 && bin[y * width + x - 1]) ||
+      (x < width - 1 && bin[y * width + x + 1])
+    let extTop = run.top
+    for (let gap = 1; gap <= 2 && extTop > gap; gap++) {
+      if (!on(extTop - gap) && on(extTop - gap - 1)) {
+        let t = extTop - gap - 1
+        while (t > 0 && on(t - 1)) t--
+        extTop = t
+        break
+      }
+    }
+    const len = run.bottom - extTop + 1
+    if (len <= longest) continue
+    longest = len
+    const tip = head.y - extTop > run.bottom - head.y ? extTop : run.bottom
     stem = { x, tip }
   }
   return stem
@@ -344,7 +376,10 @@ function countBeams(
     // flags are chunky; staff-line leftovers are only a couple of pixels tall
     const minRun = mode === 'flag' ? 0.3 * s : minBand
     const closeBand = (endY: number) => {
-      if (runLen < minRun || runLen > 1.3 * s) {
+      // beams are thin bars; staff-line residuals fused with noteheads can be much taller.
+      // flags extend further; keep the looser bound for flag mode only.
+      const maxRun = mode === 'beam' ? 0.8 * s : 1.3 * s
+      if (runLen < minRun || runLen > maxRun) {
         runLen = 0
         return
       }
@@ -570,9 +605,10 @@ function findHollowHeads(bin: Uint8Array, width: number, height: number, s: numb
     // Whole notes sitting on a staff line can have h > w after the line
     // erases part of the ring, so w < h is not checked here.
     if (hole.area < 0.15 * s * s || w < 0.55 * s || h < 0.3 * s || h > 0.85 * s) continue
-    // elliptical hole: rectangular white cells between stems/beams/lines fill their bbox
+    // elliptical hole: rectangular white cells between stems/beams/lines fill their bbox.
+    // True notehead holes are oval (fill ≤ 0.82); tie-arc pockets are nearly rectangular.
     const fill = hole.area / (w * h)
-    if (fill > 0.88) continue
+    if (fill > 0.82) continue
     // thin ring: walk outward from the hole on 8 rays; thick glyph bodies (clef etc.) fail
     const cx = hole.sumX / hole.area
     const cy = hole.sumY / hole.area
@@ -1049,6 +1085,7 @@ function recognizeStaff(
   const s = staff.spacing
   const hollowHeads = findHollowHeads(bin, width, height, s)
   const binOrig = bin.slice()
+  const pitchSlope = refineSlope(binOrig, width, height, staff.slope)
   removeStaffLines(bin, width, height, staff)
   const lead = detectLead(bin, width, height, staff)
   ;(globalThis as { __leadDbg?: object[] }).__leadDbg?.push(lead)
@@ -1083,7 +1120,7 @@ function recognizeStaff(
 
   const noteEvents: { x: number; head: Head; event: NoteEvent }[] = all.map(({ head, hollow }) => {
     // interpolate between the two nearest detected lines (skew-corrected space)
-    const y = head.y - staff.slope * head.x
+    const y = head.y - pitchSlope * head.x
     const { lines } = staff
     let idx: number
     if (y <= lines[0]) idx = (y - lines[0]) / s
@@ -1095,7 +1132,13 @@ function recognizeStaff(
     }
     const steps = Math.round(idx * 2)
 
-    const stem = findStem(bin, width, height, s, head)
+    // staff line removal can split a stem that crosses a line, so the post-removal
+    // run may be too short. Fall back to the pre-removal bitmap if the tip is too
+    // close to the head to reveal the beam above/below the staff.
+    let stem = findStem(bin, width, height, s, head)
+    if (!stem || Math.abs(head.y - stem.tip) < 2.0 * s) {
+      stem = findStem(binOrig, width, height, s, head) ?? stem
+    }
     let duration: NoteEvent['duration']
     if (hollow) duration = stem ? 2 : 1
     else if (stem) {
@@ -1247,8 +1290,12 @@ function arcBetween(
     // larger, jagged spread that exceeds the typical arc depth.
     const yMin = Math.min(...valid.map((p) => p.y))
     const yMax = Math.max(...valid.map((p) => p.y))
-    if (yMax - yMin > s) continue
-    if (curvature >= 0.15 * s) return true
+    // upper band expects mid y < edge y (arc peak further from note); lower expects mid y > edge y.
+    // when direction is correct, allow a looser spread to tolerate staff-line interference.
+    const signedC = avg(mid) - avg(edge)
+    const dirOk = bandTop > a.maxY ? signedC > 0 : signedC < 0
+    if (yMax - yMin > (dirOk ? 1.5 : 1.0) * s) continue
+    if (curvature >= 0.10 * s) return true
   }
   return false
 }
