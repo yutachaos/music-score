@@ -867,6 +867,24 @@ function findRests(
   return rests
 }
 
+// maximum horizontal run of black pixels within a rectangular window
+function maxHorizRunInWindow(
+  bin: Uint8Array, width: number, height: number,
+  wx0: number, wx1: number, wy0: number, wy1: number,
+): number {
+  const x0 = Math.max(0, Math.round(wx0)), x1 = Math.min(width - 1, Math.round(wx1))
+  const y0 = Math.max(0, Math.round(wy0)), y1 = Math.min(height - 1, Math.round(wy1))
+  let best = 0
+  for (let y = y0; y <= y1; y++) {
+    let run = 0
+    for (let x = x0; x <= x1; x++) {
+      run = bin[y * width + x] ? run + 1 : 0
+      if (run > best) best = run
+    }
+  }
+  return best
+}
+
 // groups of adjacent columns whose vertical black run is stroke-length: a sharp
 // or natural sign has two, which neither rests nor noteheads have
 function tallColumnGroups(
@@ -992,10 +1010,11 @@ function detectLead(bin: Uint8Array, width: number, height: number, staff: Staff
           const gap = dotMinX - body.maxX
           if (gap < -0.2 * s || gap > 1.2 * s) continue
           // mask the whole clef region: shredding may have split off curls
-          // further left than the body fragment found here
+          // further left than the body fragment found here.
+          // extend endX past the key signature area so its glyphs are not read as rests.
           return {
             clef: 'bass',
-            endX: 0,
+            endX: Math.round(dotMaxX + 2 * s),
             clefBox: { minX: Math.min(body.minX, dotMinX - 2.8 * s), maxX: dotMaxX },
           }
         }
@@ -1044,6 +1063,44 @@ function detectLead(bin: Uint8Array, width: number, height: number, staff: Staff
   return { clef: 'treble', endX, clefBox: clefComp }
 }
 
+// flat key signature order: Bb, Eb, Ab, Db, Gb, Cb, Fb
+const FLAT_KEY_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'] as const
+
+// detect flat key signature by scanning the y band where the 1st flat sign is placed.
+// run on binOrig (pre-staff-line-removal) so strokes are not fragmented.
+// restricting y to the expected flat line position avoids false positives from the
+// clef body which has tall runs spanning the full staff height.
+function detectKeySig(
+  bin: Uint8Array,
+  width: number,
+  height: number,
+  staff: StaffInfo,
+  lead: Lead,
+  clef: Clef,
+): Partial<Record<string, 'flat'>> {
+  if (!lead.clefBox) return {}
+  const s = staff.spacing
+  const x0 = Math.max(0, Math.round(lead.clefBox.maxX + 1))
+  const x1 = Math.min(width - 1, Math.round(lead.endX - 1))
+  if (x1 < x0) return {}
+  // Bb flat is placed on lines[2] in treble (B4), lines[3] in bass (B2).
+  // Scanning only this narrow y window avoids clef-body artifacts which span full staff height.
+  const flatLineIdx = clef === 'bass' ? 3 : 2
+  const yCenter = staff.lines[flatLineIdx]
+  const y0 = Math.max(0, Math.round(yCenter - 1.2 * s))
+  const y1 = Math.min(height - 1, Math.round(yCenter + 0.5 * s))
+  const groups = tallColumnGroups(bin, width, height, s, x0, x1, y0, y1)
+  // Belly check: flat signs have a curved bulge just below the flat-line center.
+  // Start the belly scan just below yCenter (past the staff line itself in binOrig)
+  // so that the staff line's full-width run does not create a false positive.
+  const bellyY0 = Math.round(yCenter + staff.thickness + 1)
+  const bellyRun = bellyY0 <= y1 ? maxHorizRunInWindow(bin, width, height, x0, x1, bellyY0, y1) : 0
+  if (groups === 0 || bellyRun < Math.round(0.6 * s)) return {}
+  const keySig: Partial<Record<string, 'flat'>> = {}
+  for (let i = 0; i < Math.min(groups, 7); i++) keySig[FLAT_KEY_ORDER[i]] = 'flat'
+  return keySig
+}
+
 export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
   const { width, height } = image
   const bin = binarize(image)
@@ -1058,7 +1115,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
     const y0 = Math.max(0, Math.round(staff.lines[0]) - pad)
     const y1 = Math.min(height, Math.round(staff.lines[4]) + pad)
     const local = { ...staff, lines: staff.lines.map((l) => l - y0) }
-    const r = recognizeStaff(bin.slice(y0 * width, y1 * width), width, y1 - y0, local, usedClef)
+    const r = recognizeStaff(bin.slice(y0 * width, y1 * width), width, y1 - y0, local, clef)
     usedClef = usedClef ?? r.clef
     ;(globalThis as { __headDbg?: object[] }).__headDbg?.push(
       ...r.heads.map((h, i) => ({ ...h, y: h.y + y0, minY: h.minY + y0, maxY: h.maxY + y0, ev: r.events[i] })),
@@ -1090,6 +1147,7 @@ function recognizeStaff(
   const lead = detectLead(bin, width, height, staff)
   ;(globalThis as { __leadDbg?: object[] }).__leadDbg?.push(lead)
   const usedClef = clef ?? lead.clef ?? 'treble'
+  const keySig = detectKeySig(binOrig, width, height, staff, lead, usedClef)
   const filtered = filterHeadPixels(bin, width, height, s)
   const hollowCap = 3.5 * s * s
   // only read heads near the staff and right of the clef/signature region
@@ -1118,7 +1176,9 @@ function recognizeStaff(
     ...validHollow,
   ].sort((a, b) => a.head.x - b.head.x)
 
-  const noteEvents: { x: number; head: Head; event: NoteEvent }[] = all.map(({ head, hollow }) => {
+  const noteEvents: { x: number; head: Head; event: NoteEvent }[] = []
+  let prevHeadMaxX = -Infinity
+  for (const { head, hollow } of all) {
     // interpolate between the two nearest detected lines (skew-corrected space)
     const y = head.y - pitchSlope * head.x
     const { lines } = staff
@@ -1146,31 +1206,36 @@ function recognizeStaff(
       duration = beams >= 2 ? 16 : beams === 1 ? 8 : 4
     } else duration = 4
     const dotted = hasDot(bin, width, height, s, head)
-    // a sharp/natural sign (two long vertical strokes) right before the head
-    const sharp =
-      tallColumnGroups(
-        bin,
-        width,
-        height,
-        s,
-        Math.round(head.minX - 1.5 * s),
-        Math.round(head.minX - 0.3 * s),
-        Math.round(head.y - 1.6 * s),
-        Math.round(head.y + 1.6 * s),
-      ) >= 2
     const pitch = staffPitch(steps, usedClef)
+    // detect accidental sign immediately left of the notehead
+    const acWx0 = head.minX - 1.5 * s, acWx1 = head.minX - 0.3 * s
+    const acWy0 = head.y - 1.6 * s, acWy1 = head.y + 1.6 * s
+    const tcg = tallColumnGroups(bin, width, height, s,
+      Math.round(acWx0), Math.round(acWx1), Math.round(acWy0), Math.round(acWy1))
+    let accidental: import('../model/types').Accidental | undefined
+    if (tcg >= 2) {
+      // sharp or natural: if key sig has a flat on this step, the sign is a natural
+      accidental = keySig[pitch.step] === 'flat' ? 'natural' : 'sharp'
+    } else if (tcg === 1 && prevHeadMaxX <= head.minX - 0.8 * s) {
+      const mhr = maxHorizRunInWindow(bin, width, height, head.minX - 0.8 * s, head.minX - 0.1 * s, acWy0, acWy1)
+      // flat sign belly is wider than a barline/dot (>= 0.37*s) but narrower than a note head filling the window (< 0.56*s)
+      if (mhr >= Math.ceil(0.37 * s) && mhr < Math.ceil(0.56 * s)) {
+        accidental = 'flat'
+      }
+    }
 
-    return {
+    noteEvents.push({
       x: head.x,
       head,
       event: {
         kind: 'note' as const,
-        pitch: sharp ? { ...pitch, accidental: 'sharp' as const } : pitch,
+        pitch: accidental ? { ...pitch, accidental } : pitch,
         duration,
         ...(dotted && { dotted }),
       },
-    }
-  })
+    })
+    prevHeadMaxX = head.maxX
+  }
 
   const restEvents = findRests(bin, width, height, staff, all.map((a) => a.head))
     .filter(({ head }) => nearStaff({ head }))
@@ -1205,6 +1270,15 @@ function recognizeStaff(
       m.event = { ...m.event, pitch: { ...p, accidental: carry.get(key)! } }
     }
     lastX = m.x
+  }
+
+  // apply key signature defaults to notes that have no explicit accidental
+  for (const m of merged) {
+    if (m.event.kind !== 'note') continue
+    const p = m.event.pitch!
+    if (!p.accidental && keySig[p.step]) {
+      m.event = { ...m.event, pitch: { ...p, accidental: keySig[p.step]! } }
+    }
   }
 
   // ties: a thin arc between two consecutive same-pitch notes
