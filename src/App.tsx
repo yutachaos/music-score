@@ -68,8 +68,8 @@ export default function App() {
     editor.replaceScore(next[0])
   }
 
-  function importOmr(events: NoteEvent[], clef: Score['clef']) {
-    const s = { ...newScore(), title: 'Scan score', clef, events }
+  function importOmr(events: NoteEvent[], clef: Score['clef'], keySig: Score['keySig']) {
+    const s = { ...newScore(), title: 'Scan score', clef, keySig, events }
     setStoredScores([...scores, s])
     editor.replaceScore(s)
   }

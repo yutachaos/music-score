@@ -13,6 +13,7 @@ export interface OmrResult {
   staffLines: number[]
   staffSpacing: number
   clef: Clef
+  keySig: string
 }
 
 function binarize(image: BitmapLike): Uint8Array {
@@ -1065,11 +1066,17 @@ function detectLead(bin: Uint8Array, width: number, height: number, staff: Staff
 
 // flat key signature order: Bb, Eb, Ab, Db, Gb, Cb, Fb
 const FLAT_KEY_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'] as const
+// ABC key names by number of flats (0=C, 1=F, 2=Bb, ...)
+const FLAT_KEY_NAMES = ['C', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb', 'Cb'] as const
 
 // detect flat key signature by scanning the y band where the 1st flat sign is placed.
 // run on binOrig (pre-staff-line-removal) so strokes are not fragmented.
 // restricting y to the expected flat line position avoids false positives from the
 // clef body which has tall runs spanning the full staff height.
+// For treble clef: the Bb flat sign's stem is placed inside the clef bounding box (the treble
+// clef's spiral extends far enough to the right to include the Bb flat), so the visible zone
+// [clefBox.maxX+1, endX] only shows the subsequent flats (Eb, Ab, …). The count is therefore
+// incremented by 1 to account for the always-present but hidden Bb flat.
 function detectKeySig(
   bin: Uint8Array,
   width: number,
@@ -1084,20 +1091,18 @@ function detectKeySig(
   const x1 = Math.min(width - 1, Math.round(lead.endX - 1))
   if (x1 < x0) return {}
   // Bb flat is placed on lines[2] in treble (B4), lines[3] in bass (B2).
-  // Scanning only this narrow y window avoids clef-body artifacts which span full staff height.
   const flatLineIdx = clef === 'bass' ? 3 : 2
   const yCenter = staff.lines[flatLineIdx]
   const y0 = Math.max(0, Math.round(yCenter - 1.2 * s))
   const y1 = Math.min(height - 1, Math.round(yCenter + 0.5 * s))
   const groups = tallColumnGroups(bin, width, height, s, x0, x1, y0, y1)
-  // Belly check: flat signs have a curved bulge just below the flat-line center.
-  // Start the belly scan just below yCenter (past the staff line itself in binOrig)
-  // so that the staff line's full-width run does not create a false positive.
   const bellyY0 = Math.round(yCenter + staff.thickness + 1)
   const bellyRun = bellyY0 <= y1 ? maxHorizRunInWindow(bin, width, height, x0, x1, bellyY0, y1) : 0
   if (groups === 0 || bellyRun < Math.round(0.6 * s)) return {}
+  // Treble: visible zone misses the Bb flat (hidden in clef bbox); add 1 to compensate.
+  const count = clef === 'treble' ? groups + 1 : groups
   const keySig: Partial<Record<string, 'flat'>> = {}
-  for (let i = 0; i < Math.min(groups, 7); i++) keySig[FLAT_KEY_ORDER[i]] = 'flat'
+  for (let i = 0; i < Math.min(count, 7); i++) keySig[FLAT_KEY_ORDER[i]] = 'flat'
   return keySig
 }
 
@@ -1109,6 +1114,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
   const events: NoteEvent[] = []
   const heads: { x: number; y: number }[] = []
   let usedClef: Clef | undefined = clef
+  let detectedFlats = 0
   for (const staff of staves) {
     // recognize each staff on its own horizontal band so systems do not interfere
     const pad = Math.round(4.5 * staff.spacing)
@@ -1117,6 +1123,8 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
     const local = { ...staff, lines: staff.lines.map((l) => l - y0) }
     const r = recognizeStaff(bin.slice(y0 * width, y1 * width), width, y1 - y0, local, clef)
     usedClef = usedClef ?? r.clef
+    const nFlats = Object.keys(r.keySig).length
+    if (nFlats > detectedFlats) detectedFlats = nFlats
     ;(globalThis as { __headDbg?: object[] }).__headDbg?.push(
       ...r.heads.map((h, i) => ({ ...h, y: h.y + y0, minY: h.minY + y0, maxY: h.maxY + y0, ev: r.events[i] })),
     )
@@ -1129,6 +1137,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
     staffLines: staves.flatMap((st) => st.lines),
     staffSpacing: staves[0].spacing,
     clef: usedClef ?? 'treble',
+    keySig: FLAT_KEY_NAMES[Math.min(detectedFlats, FLAT_KEY_NAMES.length - 1)],
   }
 }
 
@@ -1138,7 +1147,7 @@ function recognizeStaff(
   height: number,
   staff: StaffInfo,
   clef: Clef | undefined,
-): { events: NoteEvent[]; heads: Head[]; clef: Clef } {
+): { events: NoteEvent[]; heads: Head[]; clef: Clef; keySig: Partial<Record<string, 'flat'>> } {
   const s = staff.spacing
   const hollowHeads = findHollowHeads(bin, width, height, s)
   const binOrig = bin.slice()
@@ -1296,6 +1305,7 @@ function recognizeStaff(
     events: merged.map((m) => m.event),
     heads: merged.map((m) => m.head),
     clef: usedClef,
+    keySig,
   }
 }
 
