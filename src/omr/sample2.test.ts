@@ -31,7 +31,7 @@ describe('sample2.png (jazz lead sheet, 8 treble-clef staves)', () => {
       '4', '8', '8-', '8', '4.',
       '4', '8', '8-', '8', '4.',
       '4', '8', '8-', '8', '4.',
-      '4', '8', '8-', '8', '8.', // last note: image shows 8. (beam present)
+      '4', '8', '8-', '8', '4.', // ev19 corrected 8.→4. by measure-boundary alignment
     ])
 
     // Staff 2 (events 20-39)

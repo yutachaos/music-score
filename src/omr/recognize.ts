@@ -1303,6 +1303,22 @@ function recognizeStaff(
     if (arcBetween(binOrig, width, height, staff, a.head, b.head)) a.event.tie = true
   }
 
+  // If the staff ends short of a 4/4 measure boundary by exactly the last note's
+  // duration, the beam/flag scanner mistook a group-end beam for a shorter note.
+  // Upgrade the last event by one duration class (e.g. 8. → 4.) to fill the measure.
+  {
+    let total = 0
+    for (const m of merged) total += Math.round((32 / m.event.duration) * (m.event.dotted ? 1.5 : 1))
+    const rem = total % 32
+    if (rem !== 0) {
+      const last = merged[merged.length - 1]
+      const lastUnits = Math.round((32 / last.event.duration) * (last.event.dotted ? 1.5 : 1))
+      if (32 - rem === lastUnits && last.event.duration > 1) {
+        last.event = { ...last.event, duration: (last.event.duration / 2) as NoteEvent['duration'] }
+      }
+    }
+  }
+
   return {
     events: merged.map((m) => m.event),
     heads: merged.map((m) => m.head),
