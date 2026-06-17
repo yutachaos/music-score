@@ -6,7 +6,7 @@ import { recognize, type OmrResult } from './recognize'
 // duration detection); the canvas is shrunk for display via CSS only
 const MAX_WIDTH = 4000
 
-export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Clef, keySig: Score['keySig']) => void }) {
+export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Clef, keySig: Score['keySig'], staffEventCounts: number[]) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imageRef = useRef<ImageData | null>(null)
   const [result, setResult] = useState<OmrResult | null>(null)
@@ -80,7 +80,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
       {result && (
         <p>
           Detected {result.events.length} notes and rests ({result.clef} clef){' '}
-          <button onClick={() => onImport(result.events, result.clef, result.keySig)}>Import as new score</button>
+          <button onClick={() => onImport(result.events, result.clef, result.keySig, result.staffEventCounts)}>Import as new score</button>
         </p>
       )}
       <canvas ref={canvasRef} className="omr-canvas" />

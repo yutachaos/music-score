@@ -14,6 +14,7 @@ export interface OmrResult {
   staffSpacing: number
   clef: Clef
   keySig: string
+  staffEventCounts: number[]
 }
 
 function binarize(image: BitmapLike): Uint8Array {
@@ -1111,6 +1112,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
 
   const events: NoteEvent[] = []
   const heads: { x: number; y: number }[] = []
+  const staffEventCounts: number[] = []
   let usedClef: Clef | undefined = clef
   let detectedFlats = 0
   for (const staff of staves) {
@@ -1126,6 +1128,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
     ;(globalThis as { __headDbg?: object[] }).__headDbg?.push(
       ...r.heads.map((h, i) => ({ ...h, y: h.y + y0, minY: h.minY + y0, maxY: h.maxY + y0, ev: r.events[i] })),
     )
+    staffEventCounts.push(r.events.length)
     events.push(...r.events)
     heads.push(...r.heads.map((h) => ({ x: h.x, y: h.y + y0 })))
   }
@@ -1136,6 +1139,7 @@ export function recognize(image: BitmapLike, clef?: Clef): OmrResult {
     staffSpacing: staves[0].spacing,
     clef: usedClef ?? 'treble',
     keySig: FLAT_KEY_NAMES[Math.min(detectedFlats, FLAT_KEY_NAMES.length - 1)],
+    staffEventCounts,
   }
 }
 
