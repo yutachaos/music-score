@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { PNG } from 'pngjs'
 import { recognize } from './recognize'
 
-describe('sample6.png (treble+bass arpeggios in Bb key, natural and flat accidentals)', () => {
+describe('sample6.png (treble+bass arpeggios in F key, natural and flat accidentals)', () => {
   it('recognizes key signature, natural signs, and chord arpeggios', () => {
     const png = PNG.sync.read(readFileSync('sample6.png'))
     const result = recognize({

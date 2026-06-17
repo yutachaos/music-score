@@ -1099,10 +1099,8 @@ function detectKeySig(
   const bellyY0 = Math.round(yCenter + staff.thickness + 1)
   const bellyRun = bellyY0 <= y1 ? maxHorizRunInWindow(bin, width, height, x0, x1, bellyY0, y1) : 0
   if (groups === 0 || bellyRun < Math.round(0.6 * s)) return {}
-  // Treble: visible zone misses the Bb flat (hidden in clef bbox); add 1 to compensate.
-  const count = clef === 'treble' ? groups + 1 : groups
   const keySig: Partial<Record<string, 'flat'>> = {}
-  for (let i = 0; i < Math.min(count, 7); i++) keySig[FLAT_KEY_ORDER[i]] = 'flat'
+  for (let i = 0; i < Math.min(groups, 7); i++) keySig[FLAT_KEY_ORDER[i]] = 'flat'
   return keySig
 }
 
