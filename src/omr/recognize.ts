@@ -1313,7 +1313,7 @@ function recognizeStaff(
     if (rem !== 0) {
       const last = merged[merged.length - 1]
       const lastUnits = Math.round((32 / last.event.duration) * (last.event.dotted ? 1.5 : 1))
-      if (32 - rem === lastUnits && last.event.duration > 1) {
+      if (32 - rem === lastUnits && last.event.dotted && last.event.duration > 1) {
         last.event = { ...last.event, duration: (last.event.duration / 2) as NoteEvent['duration'] }
       }
     }
