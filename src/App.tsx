@@ -11,6 +11,35 @@ import { download, loadScores, newScore, saveScores } from './model/store'
 import { OmrPage } from './omr/OmrPage'
 import type { NoteEvent } from './model/types'
 
+// Pad each OMR staff's events to a 4/4 measure boundary so imported notes
+// don't get spuriously split across barlines in the ABC renderer.
+function alignStavesToMeasures(events: NoteEvent[], staffCounts: number[]): NoteEvent[] {
+  const MEASURE = 32 // 32nd-note units in a 4/4 measure
+  const result: NoteEvent[] = []
+  let offset = 0
+  for (const count of staffCounts) {
+    const staffEvs = events.slice(offset, offset + count)
+    result.push(...staffEvs)
+    let total = 0
+    for (const ev of staffEvs) total += Math.round((32 / ev.duration) * (ev.dotted ? 1.5 : 1))
+    const rem = total % MEASURE
+    if (rem !== 0) {
+      let pad = MEASURE - rem
+      for (const [u, d, dot] of [
+        [32, 1, false], [24, 2, true], [16, 2, false], [12, 4, true],
+        [8, 4, false], [6, 8, true], [4, 8, false], [3, 16, true], [2, 16, false],
+      ] as [number, Duration, boolean][]) {
+        while (pad >= u) {
+          result.push({ kind: 'rest', duration: d, ...(dot && { dotted: true }) })
+          pad -= u
+        }
+      }
+    }
+    offset += count
+  }
+  return result
+}
+
 const initialScores = (() => {
   const stored = loadScores()
   return stored.length > 0 ? stored : [newScore()]
@@ -68,8 +97,8 @@ export default function App() {
     editor.replaceScore(next[0])
   }
 
-  function importOmr(events: NoteEvent[], clef: Score['clef'], keySig: Score['keySig']) {
-    const s = { ...newScore(), title: 'Scan score', clef, keySig, events }
+  function importOmr(events: NoteEvent[], clef: Score['clef'], keySig: Score['keySig'], staffEventCounts: number[]) {
+    const s = { ...newScore(), title: 'Scan score', clef, keySig, events: alignStavesToMeasures(events, staffEventCounts) }
     setStoredScores([...scores, s])
     editor.replaceScore(s)
   }
