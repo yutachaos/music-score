@@ -80,7 +80,8 @@ export function usePlayback() {
         const anchor = ctx.currentTime
         if (metronome === 'backbeat') {
           for (let k = 0; k * beatSec < duration; k++) {
-            if (k % beats === 1 || k % beats === 3)
+            const b = k % beats
+            if (b === 1 || (beats >= 4 && b === 3))
               clickAt(ctx, bus, anchor + k * beatSec, false)
           }
         } else {
