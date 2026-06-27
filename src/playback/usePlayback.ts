@@ -80,7 +80,16 @@ export function usePlayback() {
       if (synth.current !== s) return
       timing.current?.start()
       s.start()
-      // Clicks are scheduled per-beat in beatCallback; nothing to pre-schedule here.
+      // Pre-schedule beat 0 click immediately so there's no gap at loop boundaries.
+      // beatCallback fires via rAF and can be up to 16ms late; beat 0 would be silent
+      // without this. beatCallback skips beat 0 to avoid a double click.
+      if (metronome !== 'off') {
+        const bus = clickBus.current!
+        const t0 = ctx.currentTime + BEAT_SLOP
+        if (metronome === 'downbeat') clickAt(ctx, bus, t0, true)
+        else if (metronome === 'offbeat') clickAt(ctx, bus, t0 + beatSec / 2, false)
+        // backbeat: beat 0 is not a backbeat beat, no click needed
+      }
     }
 
     const startAll = () => {
@@ -100,8 +109,9 @@ export function usePlayback() {
     const t = new abcjs.TimingCallbacks(visualObj, {
       beatCallback: (beatNumber: number) => {
         if (metronome === 'off' || synth.current !== s) return
+        // Beat 0 is pre-scheduled in begin() to avoid gap at loop boundaries.
+        if (beatNumber === 0) return
         const bus = clickBus.current!
-        // ctx.currentTime is 16ms early; +BEAT_SLOP aligns with actual audio beat time
         const beatTime = ctx.currentTime + BEAT_SLOP
         const beatInMeasure = beatNumber % beats
         if (metronome === 'backbeat') {
