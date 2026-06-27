@@ -69,27 +69,35 @@ export function usePlayback() {
         },
       },
     })
-    await s.prime()
+    const { duration } = await s.prime()
     const ctx = abcjs.synth.activeAudioContext()
     const beats = visualObj.getBeatsPerMeasure()
     const beatSec = visualObj.millisecondsPerMeasure() / beats / 1000
 
-    // TimingCallbacks adds 16ms slop so beatCallback fires 16ms early.
-    // Adding that offset back aligns ctx.currentTime with the actual audio beat.
-    const BEAT_SLOP = 0.016
+    const scheduleClicks = (anchor: number, bus: GainNode) => {
+      if (metronome === 'backbeat') {
+        for (let k = 0; k * beatSec < duration; k++) {
+          const b = k % beats
+          if (b === 1 || (beats >= 4 && b === 3))
+            clickAt(ctx, bus, anchor + k * beatSec, false)
+        }
+      } else if (metronome === 'offbeat') {
+        for (let k = 0; (k + 0.5) * beatSec < duration; k++)
+          clickAt(ctx, bus, anchor + (k + 0.5) * beatSec, false)
+      } else {
+        for (let k = 0; k * beatSec < duration; k++)
+          clickAt(ctx, bus, anchor + k * beatSec, k % beats === 0)
+      }
+    }
+
     begin = () => {
       if (synth.current !== s) return
       timing.current?.start()
       s.start()
-      // Pre-schedule beat 0 click immediately so there's no gap at loop boundaries.
-      // beatCallback fires via rAF and can be up to 16ms late; beat 0 would be silent
-      // without this. beatCallback skips beat 0 to avoid a double click.
       if (metronome !== 'off') {
         const bus = clickBus.current!
-        const t0 = ctx.currentTime + BEAT_SLOP
-        if (metronome === 'downbeat') clickAt(ctx, bus, t0, true)
-        else if (metronome === 'offbeat') clickAt(ctx, bus, t0 + beatSec / 2, false)
-        // backbeat: beat 0 is not a backbeat beat, no click needed
+        // Anchor after s.start() so clicks align with audio playback start
+        scheduleClicks(ctx.currentTime, bus)
       }
     }
 
@@ -108,22 +116,6 @@ export function usePlayback() {
     }
 
     const t = new abcjs.TimingCallbacks(visualObj, {
-      beatCallback: (beatNumber: number) => {
-        if (metronome === 'off' || synth.current !== s) return
-        // Beat 0 is pre-scheduled in begin() to avoid gap at loop boundaries.
-        if (beatNumber === 0) return
-        const bus = clickBus.current!
-        const beatTime = ctx.currentTime + BEAT_SLOP
-        const beatInMeasure = beatNumber % beats
-        if (metronome === 'backbeat') {
-          if (beatInMeasure === 1 || (beats >= 4 && beatInMeasure === 3))
-            clickAt(ctx, bus, beatTime, false)
-        } else if (metronome === 'offbeat') {
-          clickAt(ctx, bus, beatTime + beatSec / 2, false)
-        } else {
-          clickAt(ctx, bus, beatTime, beatInMeasure === 0)
-        }
-      },
       eventCallback: (ev) => {
         clearHighlight()
         if (!ev) {
