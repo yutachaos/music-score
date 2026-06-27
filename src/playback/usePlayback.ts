@@ -63,6 +63,7 @@ export function usePlayback() {
         // abcjs reads onEnded from the nested options, not the init root
         onEnded: () => {
           if (synth.current !== s || !loop) return
+          s.stop()
           timing.current?.reset()
           begin()
         },
