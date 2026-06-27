@@ -8,7 +8,7 @@ export interface Pitch {
   accidental?: Accidental
 }
 
-export type Duration = 1 | 2 | 4 | 8 | 16
+export type Duration = 1 | 2 | 4 | 8 | 16 | 32
 
 export interface NoteEvent {
   kind: 'note' | 'rest'

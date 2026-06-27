@@ -61,7 +61,7 @@ export function OmrPage({ onImport }: { onImport: (events: NoteEvent[], clef: Cl
     <details className="omr">
       <summary>Photo recognition (experimental)</summary>
       <p className="hint">
-        Works only with cleanly printed, monophonic scores. Durations (whole–16th, dots) and rests
+        Works only with cleanly printed, monophonic scores. Durations (whole–32nd, dots) and rests
         are estimated from the glyph shapes — review the result in the editor after importing.
       </p>
       <label className="file-button">

@@ -27,7 +27,7 @@ function alignStavesToMeasures(events: NoteEvent[], staffCounts: number[]): Note
       let pad = MEASURE - rem
       for (const [u, d, dot] of [
         [32, 1, false], [24, 2, true], [16, 2, false], [12, 4, true],
-        [8, 4, false], [6, 8, true], [4, 8, false], [3, 16, true], [2, 16, false],
+        [8, 4, false], [6, 8, true], [4, 8, false], [3, 16, true], [2, 16, false], [1, 32, false],
       ] as [number, Duration, boolean][]) {
         while (pad >= u) {
           result.push({ kind: 'rest', duration: d, ...(dot && { dotted: true }) })
@@ -55,7 +55,7 @@ export default function App() {
   const [transpose, setTranspose] = useState(0)
   const [program, setProgram] = useState(0)
   const [metronome, setMetronome] = useState<MetronomeMode>('off')
-  const [countIn, setCountIn] = useState(true)
+  const [countIn, setCountIn] = useState(false)
   const [loop, setLoop] = useState(false)
   const playback = usePlayback()
   const visualRef = useRef<TuneObject | null>(null)
