@@ -68,35 +68,19 @@ export function usePlayback() {
         },
       },
     })
-    const { duration } = await s.prime()
+    await s.prime()
     const ctx = abcjs.synth.activeAudioContext()
     const beats = visualObj.getBeatsPerMeasure()
     const beatSec = visualObj.millisecondsPerMeasure() / beats / 1000
 
+    // TimingCallbacks adds 16ms slop so beatCallback fires 16ms early.
+    // Adding that offset back aligns ctx.currentTime with the actual audio beat.
+    const BEAT_SLOP = 0.016
     begin = () => {
       if (synth.current !== s) return
-      const bus = clickBus.current!
       timing.current?.start()
       s.start()
-      if (metronome !== 'off') {
-        // Anchor after s.start() so click beat-0 aligns with note beat-0
-        const anchor = ctx.currentTime
-        if (metronome === 'backbeat') {
-          for (let k = 0; k * beatSec < duration; k++) {
-            const b = k % beats
-            if (b === 1 || (beats >= 4 && b === 3))
-              clickAt(ctx, bus, anchor + k * beatSec, false)
-          }
-        } else if (metronome === 'offbeat') {
-          for (let k = 0; (k + 0.5) * beatSec < duration; k++)
-            clickAt(ctx, bus, anchor + (k + 0.5) * beatSec, false)
-        } else {
-          for (let k = 0; k * beatSec < duration; k++) {
-            const accent = k % beats === 0
-            clickAt(ctx, bus, anchor + k * beatSec, accent)
-          }
-        }
-      }
+      // Clicks are scheduled per-beat in beatCallback; nothing to pre-schedule here.
     }
 
     const startAll = () => {
@@ -114,6 +98,21 @@ export function usePlayback() {
     }
 
     const t = new abcjs.TimingCallbacks(visualObj, {
+      beatCallback: (beatNumber: number) => {
+        if (metronome === 'off' || synth.current !== s) return
+        const bus = clickBus.current!
+        // ctx.currentTime is 16ms early; +BEAT_SLOP aligns with actual audio beat time
+        const beatTime = ctx.currentTime + BEAT_SLOP
+        const beatInMeasure = beatNumber % beats
+        if (metronome === 'backbeat') {
+          if (beatInMeasure === 1 || (beats >= 4 && beatInMeasure === 3))
+            clickAt(ctx, bus, beatTime, false)
+        } else if (metronome === 'offbeat') {
+          clickAt(ctx, bus, beatTime + beatSec / 2, false)
+        } else {
+          clickAt(ctx, bus, beatTime, beatInMeasure === 0)
+        }
+      },
       eventCallback: (ev) => {
         clearHighlight()
         if (!ev) {
