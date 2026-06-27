@@ -54,8 +54,8 @@ export default function App() {
   const [noteNames, setNoteNames] = useState<NoteNameStyle>('off')
   const [transpose, setTranspose] = useState(0)
   const [program, setProgram] = useState(0)
-  const [metronome, setMetronome] = useState<MetronomeMode>('off')
-  const [countIn, setCountIn] = useState(false)
+  const [metronome, setMetronome] = useState<MetronomeMode>('downbeat')
+  const [countIn, setCountIn] = useState(true)
   const [loop, setLoop] = useState(false)
   const playback = usePlayback()
   const visualRef = useRef<TuneObject | null>(null)
@@ -259,6 +259,7 @@ export default function App() {
             <option value="off">Off</option>
             <option value="downbeat">On-beat</option>
             <option value="offbeat">Off-beat</option>
+            <option value="backbeat">2 &amp; 4</option>
           </select>
         </label>
         <label>

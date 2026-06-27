@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import abcjs, { type TuneObject } from 'abcjs'
 
-export type MetronomeMode = 'off' | 'downbeat' | 'offbeat'
+export type MetronomeMode = 'off' | 'downbeat' | 'offbeat' | 'backbeat'
 
 export interface PlayOptions {
   program?: number
@@ -86,10 +86,17 @@ export function usePlayback() {
         if (synth.current !== s) return
         if (metronome !== 'off') {
           const anchor = ctx.currentTime
-          const offset = metronome === 'offbeat' ? 0.5 : 0
-          for (let k = 0; (k + offset) * beatSec < duration; k++) {
-            const accent = metronome === 'downbeat' && k % beats === 0
-            clickAt(ctx, bus, anchor + (k + offset) * beatSec, accent)
+          if (metronome === 'backbeat') {
+            for (let k = 0; k * beatSec < duration; k++) {
+              if (k % beats === 1 || k % beats === 3)
+                clickAt(ctx, bus, anchor + k * beatSec, false)
+            }
+          } else {
+            const offset = metronome === 'offbeat' ? 0.5 : 0
+            for (let k = 0; (k + offset) * beatSec < duration; k++) {
+              const accent = metronome === 'downbeat' && k % beats === 0
+              clickAt(ctx, bus, anchor + (k + offset) * beatSec, accent)
+            }
           }
         }
         timing.current?.start()
