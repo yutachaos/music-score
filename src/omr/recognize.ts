@@ -1153,7 +1153,8 @@ function recognizeStaff(
   const s = staff.spacing
   const hollowHeads = findHollowHeads(bin, width, height, s)
   const binOrig = bin.slice()
-  const pitchSlope = refineSlope(binOrig, width, height, staff.slope)
+  const rawPitchSlope = refineSlope(binOrig, width, height, staff.slope)
+  const pitchSlope = Math.abs(rawPitchSlope) < 0.003 ? 0 : rawPitchSlope
   removeStaffLines(bin, width, height, staff)
   const lead = detectLead(bin, width, height, staff)
   ;(globalThis as { __leadDbg?: object[] }).__leadDbg?.push(lead)
@@ -1214,7 +1215,7 @@ function recognizeStaff(
     if (hollow) duration = stem ? 2 : 1
     else if (stem) {
       const beams = countBeams(bin, width, height, s, head, stem)
-      duration = beams >= 2 ? 16 : beams === 1 ? 8 : 4
+      duration = beams >= 3 ? 32 : beams >= 2 ? 16 : beams === 1 ? 8 : 4
     } else duration = 4
     const dotted = hasDot(bin, width, height, s, head)
     const pitch = staffPitch(steps, usedClef)
