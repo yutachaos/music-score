@@ -76,7 +76,10 @@ export function usePlayback() {
     begin = () => {
       if (synth.current !== s) return
       const bus = clickBus.current!
+      timing.current?.start()
+      s.start()
       if (metronome !== 'off') {
+        // Anchor after s.start() so click beat-0 aligns with note beat-0
         const anchor = ctx.currentTime
         if (metronome === 'backbeat') {
           for (let k = 0; k * beatSec < duration; k++) {
@@ -94,8 +97,6 @@ export function usePlayback() {
           }
         }
       }
-      timing.current?.start()
-      s.start()
     }
 
     const startAll = () => {
