@@ -55,6 +55,7 @@ export function usePlayback() {
     stop()
     const { program = 0, metronome = 'off', countIn = false, loop = false } = opts
     const s = new abcjs.synth.CreateSynth()
+    let begin!: () => void
     await s.init({
       visualObj,
       options: {
@@ -62,9 +63,8 @@ export function usePlayback() {
         // abcjs reads onEnded from the nested options, not the init root
         onEnded: () => {
           if (synth.current !== s || !loop) return
-          s.stop()
           timing.current?.reset()
-          startAll()
+          begin()
         },
       },
     })
@@ -72,6 +72,28 @@ export function usePlayback() {
     const ctx = abcjs.synth.activeAudioContext()
     const beats = visualObj.getBeatsPerMeasure()
     const beatSec = visualObj.millisecondsPerMeasure() / beats / 1000
+
+    begin = () => {
+      if (synth.current !== s) return
+      const bus = clickBus.current!
+      if (metronome !== 'off') {
+        const anchor = ctx.currentTime
+        if (metronome === 'backbeat') {
+          for (let k = 0; k * beatSec < duration; k++) {
+            if (k % beats === 1 || k % beats === 3)
+              clickAt(ctx, bus, anchor + k * beatSec, false)
+          }
+        } else {
+          const offset = metronome === 'offbeat' ? 0.5 : 0
+          for (let k = 0; (k + offset) * beatSec < duration; k++) {
+            const accent = metronome === 'downbeat' && k % beats === 0
+            clickAt(ctx, bus, anchor + (k + offset) * beatSec, accent)
+          }
+        }
+      }
+      timing.current?.start()
+      s.start()
+    }
 
     const startAll = () => {
       const bus = ctx.createGain()
@@ -81,29 +103,10 @@ export function usePlayback() {
       if (countIn) {
         const t0 = ctx.currentTime
         for (let k = 0; k < beats; k++) clickAt(ctx, bus, t0 + k * beatSec, k === 0)
+        timer.current = window.setTimeout(begin, beats * beatSec * 1000)
+      } else {
+        begin()
       }
-      const begin = () => {
-        if (synth.current !== s) return
-        if (metronome !== 'off') {
-          const anchor = ctx.currentTime
-          if (metronome === 'backbeat') {
-            for (let k = 0; k * beatSec < duration; k++) {
-              if (k % beats === 1 || k % beats === 3)
-                clickAt(ctx, bus, anchor + k * beatSec, false)
-            }
-          } else {
-            const offset = metronome === 'offbeat' ? 0.5 : 0
-            for (let k = 0; (k + offset) * beatSec < duration; k++) {
-              const accent = metronome === 'downbeat' && k % beats === 0
-              clickAt(ctx, bus, anchor + (k + offset) * beatSec, accent)
-            }
-          }
-        }
-        timing.current?.start()
-        s.start()
-      }
-      if (countIn) timer.current = window.setTimeout(begin, beats * beatSec * 1000)
-      else begin()
     }
 
     const t = new abcjs.TimingCallbacks(visualObj, {
