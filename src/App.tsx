@@ -97,6 +97,13 @@ export default function App() {
     editor.replaceScore(next[0])
   }
 
+  function deleteAllScores() {
+    if (!window.confirm(`Delete all ${scores.length} score(s)?`)) return
+    const next = [newScore()]
+    setStoredScores(next)
+    editor.replaceScore(next[0])
+  }
+
   function importOmr(events: NoteEvent[], clef: Score['clef'], keySig: Score['keySig'], staffEventCounts: number[]) {
     const s = { ...newScore(), title: 'Scan score', clef, keySig, events: alignStavesToMeasures(events, staffEventCounts) }
     setStoredScores([...scores, s])
@@ -177,6 +184,7 @@ export default function App() {
         </label>
         <button onClick={addScore}>New</button>
         <button onClick={deleteScore}>Delete</button>
+        <button onClick={deleteAllScores}>Delete All</button>
         <button onClick={() => download(`${score.title}.json`, JSON.stringify(score, null, 2), 'application/json')}>
           Export JSON
         </button>
