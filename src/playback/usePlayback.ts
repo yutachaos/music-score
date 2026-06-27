@@ -12,11 +12,11 @@ export interface PlayOptions {
 
 // oscillator beep scheduled on the synth's own AudioContext, so the clicks
 // share the audio clock with the notes and cannot drift
-function clickAt(ctx: AudioContext, out: GainNode, time: number, accent: boolean, hz?: number, volume = 0.4) {
+function clickAt(ctx: AudioContext, out: GainNode, time: number, accent: boolean) {
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
-  osc.frequency.value = hz ?? (accent ? 1600 : 1100)
-  gain.gain.setValueAtTime(volume, time)
+  osc.frequency.value = accent ? 1600 : 1100
+  gain.gain.setValueAtTime(0.4, time)
   gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05)
   osc.connect(gain)
   gain.connect(out)
@@ -85,11 +85,11 @@ export function usePlayback() {
           for (let k = 0; k * beatSec < duration; k++) {
             const b = k % beats
             if (b === 1 || (beats >= 4 && b === 3))
-              clickAt(ctx, bus, anchor + k * beatSec, false, 880, 0.35)
+              clickAt(ctx, bus, anchor + k * beatSec, false)
           }
         } else if (metronome === 'offbeat') {
           for (let k = 0; (k + 0.5) * beatSec < duration; k++)
-            clickAt(ctx, bus, anchor + (k + 0.5) * beatSec, false, 880, 0.35)
+            clickAt(ctx, bus, anchor + (k + 0.5) * beatSec, false)
         } else {
           for (let k = 0; k * beatSec < duration; k++) {
             const accent = k % beats === 0
