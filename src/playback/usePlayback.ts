@@ -55,7 +55,7 @@ export function usePlayback() {
     stop()
     const { program = 0, metronome = 'off', countIn = false, loop = false } = opts
     const s = new abcjs.synth.CreateSynth()
-    let begin!: () => void
+    let begin!: (isLoop?: boolean) => void
     await s.init({
       visualObj,
       options: {
@@ -65,7 +65,7 @@ export function usePlayback() {
           if (synth.current !== s || !loop) return
           s.stop()
           timing.current?.reset()
-          begin()
+          begin(true)
         },
       },
     })
@@ -74,7 +74,10 @@ export function usePlayback() {
     const beats = visualObj.getBeatsPerMeasure()
     const beatSec = visualObj.millisecondsPerMeasure() / beats / 1000
 
-    const scheduleClicks = (anchor: number, bus: GainNode) => {
+    // Tracks the ideal anchor across loop iterations for rhythmic continuity.
+    let loopAnchor = 0
+
+    const scheduleClicks = (anchor: number, bus: GainNode, skipBeat0 = false) => {
       if (metronome === 'backbeat') {
         for (let k = 0; k * beatSec < duration; k++) {
           const b = k % beats
@@ -85,19 +88,32 @@ export function usePlayback() {
         for (let k = 0; (k + 0.5) * beatSec < duration; k++)
           clickAt(ctx, bus, anchor + (k + 0.5) * beatSec, false)
       } else {
-        for (let k = 0; k * beatSec < duration; k++)
+        for (let k = skipBeat0 ? 1 : 0; k * beatSec < duration; k++)
           clickAt(ctx, bus, anchor + k * beatSec, k % beats === 0)
+        // Pre-schedule beat 0 of next loop so there's no gap at the boundary.
+        if (loop) clickAt(ctx, bus, anchor + duration, true)
       }
     }
 
-    begin = () => {
+    begin = (isLoop = false) => {
       if (synth.current !== s) return
       timing.current?.start()
       s.start()
       if (metronome !== 'off') {
         const bus = clickBus.current!
-        // Anchor after s.start() so clicks align with audio playback start
-        scheduleClicks(ctx.currentTime, bus)
+        let anchor: number
+        if (isLoop) {
+          const ideal = loopAnchor + duration
+          // Use the ideal anchor for perfect beat alignment. Fall back to now only
+          // if the ideal is so far past that even beat 1 would be in the past
+          // (shouldn't happen at normal tempos, but guards against very slow devices).
+          anchor = ideal + beatSec > ctx.currentTime ? ideal : ctx.currentTime
+        } else {
+          anchor = ctx.currentTime
+        }
+        loopAnchor = anchor
+        // downbeat loop: beat 0 was pre-scheduled by the previous iteration; skip it.
+        scheduleClicks(anchor, bus, isLoop && metronome === 'downbeat')
       }
     }
 
